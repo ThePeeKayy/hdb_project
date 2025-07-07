@@ -20,9 +20,10 @@ interface Post {
   export default function HDBMarketPage() {
       const [form, setForm] = useState<boolean>(false);
       const [posts, setPosts] = useState<Post[]>([])
+      const API_URL = process.env.REACT_APP_API_URL;
 
       const getListings = async (): Promise<void> => {
-      const response = await fetch('https://vqe2yhjppn.ap-southeast-1.awsapprunner.com/api/listings', {
+      const response = await fetch(`${API_URL}/api/listings`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

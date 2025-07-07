@@ -4,6 +4,7 @@ const HDBHelperPage = () => {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
+  const API_URL = process.env.REACT_APP_API_URL;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -13,7 +14,7 @@ const HDBHelperPage = () => {
     setResponse('');
 
     try {
-      const res = await fetch('https://vqe2yhjppn.ap-southeast-1.awsapprunner.com/api/helper', {
+      const res = await fetch(`${API_URL}/api/helper`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: prompt.trim() })

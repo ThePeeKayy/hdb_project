@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 
 export default function AddFlatForm({ setForm }) {
+  const API_URL = process.env.REACT_APP_API_URL;
   const [formDetails, setFormDetails] = useState({
     flatType: "",
     location: "",
@@ -86,7 +87,7 @@ export default function AddFlatForm({ setForm }) {
       },
     };
     try {
-      const response = await fetch('https://vqe2yhjppn.ap-southeast-1.awsapprunner.com/api/listings', {
+      const response = await fetch(`${API_URL}/api/listings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

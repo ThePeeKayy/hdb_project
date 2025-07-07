@@ -14,6 +14,7 @@ export default function HDBResellPage() {
   const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const API_URL = process.env.REACT_APP_API_URL;
 
   const towns = [
     'ANG MO KIO', 'BEDOK', 'BISHAN', 'BUKIT BATOK', 'BUKIT MERAH', 'BUKIT PANJANG',
@@ -39,7 +40,7 @@ export default function HDBResellPage() {
     setError('');
 
     try {
-      const response = await fetch('https://vqe2yhjppn.ap-southeast-1.awsapprunner.com/api/predict', {
+      const response = await fetch(`${API_URL}/api/predict`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
