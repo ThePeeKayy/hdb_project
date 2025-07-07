@@ -1,25 +1,30 @@
 import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Nav from './components/nav/nav';
+import Hero from './components/Hero/hero';
+import HDBResellPage from './forecast/Page';
+import HDBHelperPage from './helper/Page';
+import HDBMarketPage from './marketplace/Page';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <Router>
+  <div className="relative w-full h-screen overflow-hidden">
+    <div className="absolute inset-0 z-0">
+      <Nav />
     </div>
+
+    <div className="relative z-10 mt-[8vh]">
+      <Routes>
+        <Route path="/" element={<Hero />} />
+        <Route path="/forecast" element={<HDBResellPage />} />
+        <Route path="/helper" element={<HDBHelperPage />} />
+        <Route path="/marketplace" element={<HDBMarketPage />} />
+      </Routes>
+    </div>
+  </div>
+</Router>
+
   );
 }
 
