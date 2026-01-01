@@ -14,7 +14,6 @@ export default function HDBResellPage() {
   const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const API_URL = process.env.REACT_APP_API_URL;
 
   const towns = [
     'ANG MO KIO', 'BEDOK', 'BISHAN', 'BUKIT BATOK', 'BUKIT MERAH', 'BUKIT PANJANG',
@@ -40,7 +39,7 @@ export default function HDBResellPage() {
     setError('');
 
     try {
-      const response = await fetch(`${API_URL}/api/predict`, {
+      const response = await fetch('https://vqe2yhjppn.ap-southeast-1.awsapprunner.com/api/predict', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,10 +75,10 @@ export default function HDBResellPage() {
   };
 
   return (
-    <div className="min-h-screen max-h-[90vh] scrollbar-hide overflow-y-auto py-8 flex justify-center">
-      <div className='flex lg:flex-row flex-col items-centre gap-y-8'>
+    <div className="min-h-screen py-4 flex justify-center">
+      <div className='flex lg:flex-row flex-col w-full lg:justify-center justify-start lg:items-start items-center max-w-7xl px-4 gap-8'>
         
-      <div className="max-w-6xl px-4">
+      <div className="max-w-2xl px-4">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-50 mb-2">
             HDB Resale Price Predictor
@@ -89,7 +88,7 @@ export default function HDBResellPage() {
           </p>
         </div>
 
-        <div className="bg-gray-800 rounded-lg shadow-md min-w-[30vw] p-6 mb-6">
+        <div className="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-200 mb-2">
@@ -163,12 +162,12 @@ export default function HDBResellPage() {
 
         {predictionData && (
           <div className="bg-gray-800 rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Price Predictions</h2>
+            <h2 className="text-xl font-bold text-white mb-4">Price Predictions</h2>
             
             <div className="space-y-4">
               <div className="flex justify-between items-center py-2 border-b">
                 <span className="text-gray-600">Current Average Price</span>
-                <span className="font-semibold text-lg">
+                <span className="font-semibold text-lg text-white">
                   {formatPrice(predictionData.current_avg_price)}
                 </span>
               </div>
@@ -205,8 +204,8 @@ export default function HDBResellPage() {
           </div>
         )}
       </div>
-      <div className="max-w-6xl px-4">
-        <div className="text-center mb-8">
+      <div className="max-w-2xl flex-1">
+        <div className="flex flex-col justify-center text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-50 mb-2">
             Live HDB Data
           </h1>
@@ -214,11 +213,20 @@ export default function HDBResellPage() {
             Official numbers from gov data
           </p>
               <iframe
-            className='bg-gray-800 text-white mt-8 rounded-[10px]'
-            width="600"
-            height="600"
-            src="https://data.gov.sg/datasets/d_8b84c4ee58e3cfc0ece0d773c8ca6abc/chart/1421"
-          />
+                className="mt-8 sm:block hidden bg-gray-800 rounded-lg scale-75 md:scale-100 origin-top-left"
+                width="600"
+                height="600"
+                src="https://data.gov.sg/datasets/d_8b84c4ee58e3cfc0ece0d773c8ca6abc/chart/1421"
+                title="Live HDB Data"
+              />
+              <iframe
+                className="mt-8 ml-[70px] block sm:hidden mx-auto bg-gray-800 rounded-lg scale-75 origin-top-left"
+                width="400"
+                height="400"
+                src="https://data.gov.sg/datasets/d_8b84c4ee58e3cfc0ece0d773c8ca6abc/chart/1421"
+                title="Live HDB Data"
+              />
+
         </div>
       </div>
       

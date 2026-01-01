@@ -14,7 +14,7 @@ function App() {
       <Nav />
     </div>
 
-    <div className="relative z-10 mt-[8vh]">
+    <div className="relative z-10 mt-[8vh] h-[91vh] py-8 sm:max-w-[100vw] overflow-y-auto scrollbar-hide">
       <Routes>
         <Route path="/" element={<Hero />} />
         <Route path="/forecast" element={<HDBResellPage />} />

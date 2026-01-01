@@ -111,7 +111,7 @@ export default function AddFlatForm({ setForm }) {
 
   return (
     <div className="px-6">
-      <div className="relative bg-white mx-auto max-w-3xl rounded-lg max-h-[85vh] overflow-y-auto scrollbar-hide">
+      <div className="relative bg-white mx-auto max-w-3xl rounded-lg max-h-[75vh] overflow-y-auto scrollbar-hide">
         <section className="py-16">
           <form onSubmit={handleSubmit} className="space-y-6 px-8">
             <div className="flex justify-between items-center">

@@ -30,7 +30,7 @@ const HDBHelperPage = () => {
   };
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen overflow-y-hidden p-6">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">HDB Resale AI Helper</h1>

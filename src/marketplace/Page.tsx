@@ -42,7 +42,7 @@ interface Post {
   };
   useEffect(() => {
       getListings();
-  }, []);
+  }, [form]);
   return (
     <div className="pb-12 sm:pb-16 pt-8">
         {form && <AddFlatForm setForm={setForm} />}
@@ -55,7 +55,7 @@ interface Post {
         <button
                 type="button"
                 onClick={() =>setForm(true)}
-                className="flex flex-row gap-x-3 items-center rounded-full mr-5 bg-white hover:bg-black hover:text-white text px-4 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 "
+                className="hidden sm:flex flex-row gap-x-3 items-center rounded-full mr-5 bg-white hover:bg-black hover:text-white text px-4 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 "
         >
             Create new Listing
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="white" className="size-5 bg-black rounded-full">
@@ -63,9 +63,20 @@ interface Post {
             </svg>
 
         </button>
+        <button
+                type="button"
+                onClick={() =>setForm(true)}
+                className="sm:hidden flex flex-row gap-x-3 items-center rounded-full mr-5 bg-white hover:bg-black hover:text-white text px-4 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 "
+        >
+            Create
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="white" className="size-5 bg-black rounded-full">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+
+        </button>
       </div>
-          <p className="mt-2 text-lg/8 text-gray-200">Browse recently listed flats (Auto expires in 30 days)</p>
-          <div className="overflow-auto scrollbar-hide max-h-[75vh] mt-8 space-y-20 lg:mt-10 lg:space-y-20">
+          <p className="mt-2 text-lg/8 text-gray-200">Browse recently listed flats (Auto expires in 1 day due to costs)</p>
+          <div className="overflow-auto scrollbar-hide lg:max-h-[60vh] mt-8 space-y-20 lg:mt-10 lg:space-y-20">
             {posts.map((post) => (
               <article key={post.id} className="relative isolate flex flex-col gap-8 lg:flex-row">
                 <div className="relative aspect-video sm:aspect-[2/1] lg:aspect-square lg:w-64 lg:shrink-0">
