@@ -1,5 +1,6 @@
 """
 Bronze Layer: Data Ingestion from data.gov.sg
+Matches ULTRA-SIMPLE NHiTS model structure
 Runs on EC2 t4g.micro
 Execution time: ~2 minutes
 """
@@ -27,7 +28,30 @@ BRONZE_KEY = 'bronze/resale-data.parquet'
 s3_client = boto3.client('s3')
 
 
-def fetch_all_records(limit=100000):
+def map_town_to_region(town):
+    """Map town to Singapore region - EXACT match with NHiTS training"""
+    central = ['BISHAN', 'BUKIT MERAH', 'BUKIT TIMAH', 'CENTRAL AREA', 'GEYLANG', 
+               'KALLANG/WHAMPOA', 'MARINE PARADE', 'QUEENSTOWN', 'TOA PAYOH']
+    east = ['BEDOK', 'PASIR RIS', 'TAMPINES']
+    north = ['ANG MO KIO', 'HOUGANG', 'PUNGGOL', 'SENGKANG', 'SERANGOON', 
+             'SEMBAWANG', 'WOODLANDS', 'YISHUN']
+    west = ['BUKIT BATOK', 'BUKIT PANJANG', 'CHOA CHU KANG', 'CLEMENTI', 
+            'JURONG EAST', 'JURONG WEST', 'LIM CHU KANG']
+    
+    if town in central:
+        return 'CENTRAL'
+    elif town in east:
+        return 'EAST'
+    elif town in north:
+        return 'NORTH'
+    elif town in west:
+        return 'WEST'
+    else:
+        return 'OTHERS'
+
+
+def fetch_all_records():
+    """Fetch all records from data.gov.sg API"""
     all_records = []
     offset = 0
     
@@ -35,7 +59,7 @@ def fetch_all_records(limit=100000):
         try:
             params = {
                 'resource_id': RESOURCE_ID,
-                'limit': 100,  # API limit per request
+                'limit': 100,
                 'offset': offset
             }
             
@@ -55,10 +79,6 @@ def fetch_all_records(limit=100000):
                 
             all_records.extend(records)
             logger.info(f"Fetched {len(all_records)} records so far...")
-            
-            # Check if we've reached the limit
-            if len(records) < 100 or len(all_records) >= limit:
-                break
                 
             offset += 100
             
@@ -71,95 +91,33 @@ def fetch_all_records(limit=100000):
 
 
 def clean_and_validate_data(records):
+    """Clean data - EXACT match with NHiTS training cleaning"""
     df = pd.DataFrame(records)
     
     logger.info(f"Initial shape: {df.shape}")
-    logger.info(f"Columns: {df.columns.tolist()}")
     
-    required_cols = [
-        'month', 'town', 'flat_type', 'block', 'street_name',
-        'storey_range', 'floor_area_sqm', 'flat_model', 
-        'lease_commence_date', 'remaining_lease', 'resale_price'
-    ]
     
-    missing_cols = set(required_cols) - set(df.columns)
-    if missing_cols:
-        logger.warning(f"Missing columns: {missing_cols}")
+    df['month'] = pd.to_datetime(df['month'], errors='coerce')
+    df['resale_price'] = pd.to_numeric(df['resale_price'], errors='coerce')
+    df['floor_area_sqm'] = pd.to_numeric(df['floor_area_sqm'], errors='coerce')
     
-    if 'resale_price' in df.columns:
-        df['resale_price'] = pd.to_numeric(df['resale_price'], errors='coerce')
     
-    if 'floor_area_sqm' in df.columns:
-        df['floor_area_sqm'] = pd.to_numeric(df['floor_area_sqm'], errors='coerce')
+    df = df.dropna(subset=['month', 'town', 'flat_type', 'resale_price', 'floor_area_sqm'])
+    df = df[(df['resale_price'] > 50000) & (df['resale_price'] < 2000000)]
+    df = df[(df['floor_area_sqm'] > 20) & (df['floor_area_sqm'] < 300)]
     
-    if 'lease_commence_date' in df.columns:
-        df['lease_commence_date'] = pd.to_numeric(df['lease_commence_date'], errors='coerce')
+    logger.info(f"After cleaning: {len(df):,} rows")
     
-    if 'month' in df.columns:
-        df['month'] = pd.to_datetime(df['month'], errors='coerce')
     
-    critical_fields = ['month', 'town', 'flat_type', 'resale_price']
-    df = df.dropna(subset=[col for col in critical_fields if col in df.columns])
+    df['region'] = df['town'].apply(map_town_to_region)
     
-    logger.info(f"After cleaning shape: {df.shape}")
-    
-    return df
-
-
-def calculate_remaining_lease_years(df):
-    if 'remaining_lease' not in df.columns:
-        logger.warning("remaining_lease column not found")
-        return df
-    
-    def parse_lease(lease_str):
-        if pd.isna(lease_str):
-            return None
-        
-        try:
-            lease_str = str(lease_str).lower()
-            years = 0
-            months = 0
-            
-            if 'year' in lease_str:
-                years = int(lease_str.split('year')[0].strip())
-            
-            if 'month' in lease_str:
-                month_part = lease_str.split('year')[-1] if 'year' in lease_str else lease_str
-                months = int(month_part.split('month')[0].strip())
-            
-            return years + (months / 12)
-        except:
-            return None
-    
-    df['remaining_lease_years'] = df['remaining_lease'].apply(parse_lease)
-    
-    return df
-
-
-def add_lease_buckets(df):
-    if 'remaining_lease_years' not in df.columns:
-        return df
-    
-    def assign_bucket(years):
-        if pd.isna(years):
-            return None
-        if years < 20:
-            return '0-20'
-        elif years < 40:
-            return '20-40'
-        elif years < 60:
-            return '40-60'
-        elif years < 80:
-            return '60-80'
-        else:
-            return '80+'
-    
-    df['remaining_lease_bucket'] = df['remaining_lease_years'].apply(assign_bucket)
+    logger.info(f"Region distribution:\n{df['region'].value_counts()}")
     
     return df
 
 
 def upload_to_s3(df, bucket, key):
+    """Upload to S3 as Parquet"""
     table = pa.Table.from_pandas(df)
     buffer = BytesIO()
     pq.write_table(table, buffer, compression='snappy')
@@ -172,36 +130,37 @@ def upload_to_s3(df, bucket, key):
         ContentType='application/x-parquet'
     )
     
-    logger.info(f"Successfully uploaded {df.shape[0]} rows to S3")
+    logger.info(f"✓ Uploaded {df.shape[0]:,} rows to s3://{bucket}/{key}")
 
 
 def main():
-    """
-    Main execution function
-    """
+    """Main execution"""
     try:
+        logger.info("=" * 60)
+        logger.info("BRONZE LAYER: Data Ingestion")
+        logger.info("=" * 60)
+        
+        
         records = fetch_all_records()
         
         if not records:
             logger.error("No records fetched. Exiting.")
             return False
         
+        
         df = clean_and_validate_data(records)
         
-        df = calculate_remaining_lease_years(df)
-        
-        df = add_lease_buckets(df)
         
         df['ingestion_timestamp'] = datetime.now()
-        df['ingestion_date'] = datetime.now().strftime('%Y-%m-%d')
+        
         
         upload_to_s3(df, BUCKET_NAME, BRONZE_KEY)
         
-        logger.info("Bronze layer ingestion completed successfully!")
+        logger.info("✓ Bronze layer completed successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"Bronze layer ingestion failed: {e}", exc_info=True)
+        logger.error(f"✗ Bronze layer failed: {e}", exc_info=True)
         return False
 
 

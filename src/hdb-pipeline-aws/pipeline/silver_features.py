@@ -1,16 +1,15 @@
 """
-Silver Layer: Time Series Feature Engineering
-Runs on EC2 t4g.micro
-Execution time: ~3 minutes
+Silver Layer: Feature Engineering and Aggregation
+Aggregates bronze data by month, region, and flat_type
+Saves to S3 for gold layer consumption
 """
 
 import pandas as pd
 import numpy as np
 import boto3
 from io import BytesIO
-import pyarrow.parquet as pq
-import logging
 from datetime import datetime
+import logging
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,187 +17,106 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BUCKET_NAME = 'hdb-prediction-pipeline'
-BRONZE_KEY = 'bronze/resale-data.parquet'
-SILVER_KEY = 'silver/features.parquet'
+BUCKET_NAME = "hdb-prediction-pipeline"
+BRONZE_KEY = "bronze/resale-data.parquet"
+SILVER_KEY = "silver/features.parquet"
 
-s3_client = boto3.client('s3')
+s3_client = boto3.client("s3")
 
 
 def read_from_s3(bucket, key):
-    """
-    Read Parquet file from S3 into DataFrame
-    """
-    logger.info(f"Reading from s3://{bucket}/{key}")
-    
+    """Read parquet from S3"""
+    logger.info(f"Reading s3://{bucket}/{key}")
     response = s3_client.get_object(Bucket=bucket, Key=key)
-    buffer = BytesIO(response['Body'].read())
+    df = pd.read_parquet(BytesIO(response["Body"].read()))
+    logger.info(f"✓ Loaded {len(df):,} rows")
+    return df
+
+
+def extract_storey_mid(storey_range):
+    """Extract middle value from storey range (e.g., '10 TO 12' -> 11.0)"""
+    try:
+        parts = str(storey_range).split(" TO ")
+        if len(parts) == 2:
+            return (int(parts[0]) + int(parts[1])) / 2
+        return np.nan
+    except:
+        return np.nan
+
+
+def process_bronze_data(df):
+    """Process and clean bronze data"""
+    logger.info("Processing bronze data...")
     
-    df = pd.read_parquet(buffer)
-    logger.info(f"Loaded {df.shape[0]} rows, {df.shape[1]} columns")
+    
+    df["month"] = pd.to_datetime(df["month"], errors="coerce")
+    df["resale_price"] = pd.to_numeric(df["resale_price"], errors="coerce")
+    df["floor_area_sqm"] = pd.to_numeric(df["floor_area_sqm"], errors="coerce")
+    df["lease_commence_date"] = pd.to_numeric(df["lease_commence_date"], errors="coerce")
+    
+    
+    df["storey_mid"] = df["storey_range"].apply(extract_storey_mid)
+    
+    
+    df["remaining_lease"] = (99 - (df["month"].dt.year - df["lease_commence_date"])).clip(lower=0)
+    
+    
+    numeric_cols = ["resale_price", "floor_area_sqm", "storey_mid", "remaining_lease", "lease_commence_date"]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    
+    initial_count = len(df)
+    df = df.dropna(subset=["month", "region", "flat_type", "resale_price", "floor_area_sqm"])
+    dropped = initial_count - len(df)
+    
+    if dropped > 0:
+        logger.info(f"Dropped {dropped:,} rows with null values")
+    
+    logger.info(f"✓ After processing: {len(df):,} rows")
     
     return df
 
 
-def create_time_series_groups(df):    
-    df['month'] = pd.to_datetime(df['month'])
-    grouped = df.groupby([
-        'month', 'town', 'flat_type', 'remaining_lease_bucket'
-    ]).agg({
-        'resale_price': ['mean', 'median', 'std', 'count'],
-        'floor_area_sqm': 'mean'
-    }).reset_index()
+def aggregate_data(df):
+    """Aggregate by month, region, and flat_type"""
+    logger.info("Aggregating data...")
     
-    grouped.columns = [
-        'month', 'town', 'flat_type', 'remaining_lease_bucket',
-        'avg_price', 'median_price', 'price_std', 'transaction_count',
-        'avg_floor_area'
-    ]
+    agg_df = df.groupby(["month", "region", "flat_type"]).agg(
+        avg_price=("resale_price", "mean"),
+        avg_floor_area=("floor_area_sqm", "mean"),
+        avg_storey=("storey_mid", "mean"),
+        avg_remaining_lease=("remaining_lease", "mean"),
+        avg_lease_commence=("lease_commence_date", "mean"),
+        count=("resale_price", "count")
+    ).reset_index()
     
-    grouped['price_per_sqm'] = grouped['avg_price'] / grouped['avg_floor_area']
-    grouped = grouped.sort_values(['town', 'flat_type', 'remaining_lease_bucket', 'month'])
+    logger.info(f"✓ Aggregated to {len(agg_df):,} rows")
+    logger.info(f"✓ Groups: {agg_df.groupby(['region', 'flat_type']).ngroups}")
+    
+    
+    for col in ["avg_storey", "avg_remaining_lease", "avg_lease_commence"]:
         
-    return grouped
-
-
-def add_lag_features(df, periods=[1, 3, 6, 12]):
-    
-    df['group_key'] = (
-        df['town'] + '_' + 
-        df['flat_type'] + '_' + 
-        df['remaining_lease_bucket'].astype(str)
-    )
-    
-    for period in periods:
-        col_name = f'avg_price_lag_{period}m'
-        df[col_name] = df.groupby('group_key')['avg_price'].shift(period)
-        logger.info(f"Added {col_name}")
-    
-    return df
-
-
-def add_rolling_features(df, windows=[3, 6, 12]):
-
-    
-    for window in windows:
-        col_name = f'avg_price_roll_{window}m'
-        df[col_name] = (
-            df.groupby('group_key')['avg_price']
-            .rolling(window=window, min_periods=1)
-            .mean()
-            .reset_index(level=0, drop=True)
+        agg_df[col] = agg_df.groupby(["region", "flat_type"])[col].transform(
+            lambda x: x.fillna(x.mean())
         )
         
-        std_col_name = f'price_std_roll_{window}m'
-        df[std_col_name] = (
-            df.groupby('group_key')['avg_price']
-            .rolling(window=window, min_periods=1)
-            .std()
-            .reset_index(level=0, drop=True)
-        )
-        
-        logger.info(f"Added rolling features for {window} months")
+        if agg_df[col].isna().any():
+            global_mean = agg_df[col].mean()
+            agg_df[col] = agg_df[col].fillna(global_mean)
     
-    return df
+    
+    agg_df["group_key"] = agg_df["region"] + "_" + agg_df["flat_type"]
+    
+    logger.info(f"✓ Unique groups: {agg_df['group_key'].nunique()}")
+    logger.info(f"✓ Group keys: {sorted(agg_df['group_key'].unique())}")
+    
+    return agg_df
 
 
-def add_trend_features(df):
-    logger.info("Adding trend features...")
-    
-    df['price_change_1m'] = df.groupby('group_key')['avg_price'].pct_change(1)
-    
-    df['price_change_3m'] = df.groupby('group_key')['avg_price'].pct_change(3)
-    
-    df['price_change_12m'] = df.groupby('group_key')['avg_price'].pct_change(12)
-    
-    df['price_change_from_start'] = (
-        df.groupby('group_key')['avg_price']
-        .transform(lambda x: (x - x.iloc[0]) / x.iloc[0] if len(x) > 0 else 0)
-    )
-    
-    return df
-
-
-def add_seasonality_features(df):
-    """
-    Add seasonality indicators
-    """
-    logger.info("Adding seasonality features...")
-    
-    df['month_num'] = df['month'].dt.month
-    df['quarter'] = df['month'].dt.quarter
-    df['year'] = df['month'].dt.year
-    
-    df['month_sin'] = np.sin(2 * np.pi * df['month_num'] / 12)
-    df['month_cos'] = np.cos(2 * np.pi * df['month_num'] / 12)
-    
-    return df
-
-
-def add_categorical_encodings(df):
-    """
-    Encode categorical variables
-    """
-    logger.info("Adding categorical encodings...")
-    
-    town_encoding = df.groupby('town')['avg_price'].mean().to_dict()
-    df['town_avg_price'] = df['town'].map(town_encoding)
-    
-    flat_type_order = {'2 ROOM': 1, '3 ROOM': 2, '4 ROOM': 3, '5 ROOM': 4, 'EXECUTIVE': 5}
-    df['flat_type_encoded'] = df['flat_type'].map(flat_type_order).fillna(3)
-    
-    def lease_midpoint(bucket):
-        if pd.isna(bucket):
-            return 50
-        if bucket == '0-20':
-            return 10
-        elif bucket == '20-40':
-            return 30
-        elif bucket == '40-60':
-            return 50
-        elif bucket == '60-80':
-            return 70
-        else:
-            return 85
-    
-    df['lease_midpoint'] = df['remaining_lease_bucket'].apply(lease_midpoint)
-    
-    return df
-
-
-def add_market_indicators(df):
-    market_avg = df.groupby('month')['avg_price'].mean().reset_index()
-    market_avg.columns = ['month', 'market_avg_price']
-    df = df.merge(market_avg, on='month', how='left')
-    
-    df['price_vs_market'] = df['avg_price'] / df['market_avg_price']
-    
-    return df
-
-
-def filter_for_modeling(df):
-    """
-    Filter and prepare data for modeling
-    Keep only groups with sufficient history
-    """
-    
-    group_counts = df.groupby('group_key').size().reset_index(name='obs_count')
-    
-    # Keep groups with at least 12 months of data
-    valid_groups = group_counts[group_counts['obs_count'] >= 12]['group_key']
-    
-    df_filtered = df[df['group_key'].isin(valid_groups)].copy()
-    
-    logger.info(f"Kept {len(df_filtered)} rows from {len(valid_groups)} groups")
-    logger.info(f"Removed {len(df) - len(df_filtered)} rows with insufficient history")
-    
-    return df_filtered
-
-
-def upload_to_s3(df, bucket, key):
-    logger.info(f"Uploading to s3://{bucket}/{key}")
-    
-    df['feature_engineering_timestamp'] = datetime.now()
+def save_to_s3(df, bucket, key):
+    """Save dataframe to S3 as parquet"""
+    logger.info(f"Saving to s3://{bucket}/{key}")
     
     buffer = BytesIO()
     df.to_parquet(buffer, compression='snappy', index=False)
@@ -211,45 +129,62 @@ def upload_to_s3(df, bucket, key):
         ContentType='application/x-parquet'
     )
     
-    logger.info(f"Successfully uploaded {df.shape[0]} rows, {df.shape[1]} features to S3")
+    logger.info(f"✓ Saved {len(df):,} rows to S3")
 
 
 def main():
-    """
-    Main execution function
-    """
+    """Main execution"""
     try:
-        df_bronze = read_from_s3(BUCKET_NAME, BRONZE_KEY)
+        logger.info("=" * 60)
+        logger.info("SILVER LAYER: Feature Engineering")
+        logger.info("=" * 60)
         
-        df_ts = create_time_series_groups(df_bronze)
         
-        df_ts = add_lag_features(df_ts, periods=[1, 3, 6, 12])
+        df = read_from_s3(BUCKET_NAME, BRONZE_KEY)
         
-        df_ts = add_rolling_features(df_ts, windows=[3, 6, 12])
+        if len(df) == 0:
+            logger.error("Bronze layer is empty!")
+            return False
         
-        df_ts = add_trend_features(df_ts)
+        logger.info(f"Date range: {df['month'].min()} to {df['month'].max()}")
+        logger.info(f"Regions: {df['region'].unique()}")
+        logger.info(f"Flat types: {df['flat_type'].unique()}")
         
-        df_ts = add_seasonality_features(df_ts)
         
-        df_ts = add_categorical_encodings(df_ts)
+        df = process_bronze_data(df)
         
-        df_ts = add_market_indicators(df_ts)
+        if len(df) == 0:
+            logger.error("All data filtered out during processing!")
+            return False
         
-        df_final = filter_for_modeling(df_ts)
         
-        upload_to_s3(df_final, BUCKET_NAME, SILVER_KEY)
+        agg_df = aggregate_data(df)
         
-        logger.info("Silver layer feature engineering completed successfully!")
+        if len(agg_df) == 0:
+            logger.error("Aggregation resulted in empty dataframe!")
+            return False
         
-        logger.info(f"\nFeature Summary:")
-        logger.info(f"Total features: {df_final.shape[1]}")
-        logger.info(f"Unique groups: {df_final['group_key'].nunique()}")
-        logger.info(f"Date range: {df_final['month'].min()} to {df_final['month'].max()}")
+        
+        save_to_s3(agg_df, BUCKET_NAME, SILVER_KEY)
+        
+        
+        logger.info("\n" + "=" * 60)
+        logger.info("SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Total aggregated rows: {len(agg_df):,}")
+        logger.info(f"Date range: {agg_df['month'].min()} to {agg_df['month'].max()}")
+        logger.info(f"Unique groups: {agg_df['group_key'].nunique()}")
+        logger.info(f"\nRegion distribution:")
+        logger.info(agg_df['region'].value_counts().to_string())
+        logger.info(f"\nFlat type distribution:")
+        logger.info(agg_df['flat_type'].value_counts().to_string())
+        logger.info("=" * 60)
+        logger.info("✓ Silver layer completed successfully!")
         
         return True
         
     except Exception as e:
-        logger.error(f"Silver layer feature engineering failed: {e}", exc_info=True)
+        logger.error(f"✗ Silver layer failed: {e}", exc_info=True)
         return False
 
 

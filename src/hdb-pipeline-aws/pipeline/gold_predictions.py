@@ -1,7 +1,6 @@
 """
-Gold Layer: Generate Predictions using Trained TiDE Model
-Runs daily on EC2 t4g.micro
-Execution time: ~5 minutes
+Gold Layer: Generate Predictions using SARIMAX Models
+FIXED: Proper model state updates for accurate predictions
 """
 
 import pandas as pd
@@ -12,10 +11,8 @@ import pickle
 import logging
 from datetime import datetime
 from decimal import Decimal
-
-
-from darts import TimeSeries
-
+import warnings
+warnings.filterwarnings('ignore')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,176 +20,234 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 BUCKET_NAME = 'hdb-prediction-pipeline'
 SILVER_KEY = 'silver/features.parquet'
-MODEL_KEY = 'gold/tide-model.pkl'
-SCALER_KEY = 'gold/tide-scaler.pkl'
+MODEL_KEY = 'gold/sarimax-models-dict.pkl'
 PREDICTIONS_KEY = 'gold/predictions-cache.parquet'
 DYNAMODB_TABLE = 'hdb-predictions'
 
+MIN_MONTHS_REQUIRED = 4
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table(DYNAMODB_TABLE)
 
 
+def get_table_key_schema():
+    try:
+        table_info = table.key_schema
+        logger.info(f"DynamoDB table key schema: {table_info}")
+        
+        partition_key = None
+        sort_key = None
+        
+        for key in table_info:
+            if key['KeyType'] == 'HASH':
+                partition_key = key['AttributeName']
+            elif key['KeyType'] == 'RANGE':
+                sort_key = key['AttributeName']
+        
+        logger.info(f"Partition key: {partition_key}, Sort key: {sort_key}")
+        return partition_key, sort_key
+        
+    except Exception as e:
+        logger.error(f"Failed to get table schema: {e}")
+        return 'region_flattype', None
+
+
 def read_from_s3(bucket, key):
-    
-    logger.info(f"Reading from s3://{bucket}/{key}")
+    logger.info(f"Reading s3://{bucket}/{key}")
     response = s3_client.get_object(Bucket=bucket, Key=key)
     return response['Body'].read()
 
 
-def load_model_and_scalers():
+def load_models():
+    logger.info("Loading SARIMAX models...")
+    models_dict = pickle.loads(read_from_s3(BUCKET_NAME, MODEL_KEY))
     
-    logger.info("Loading model and scalers...")
+    if not isinstance(models_dict, dict):
+        raise ValueError("Models must be a dict")
     
-    
-    model_bytes = read_from_s3(BUCKET_NAME, MODEL_KEY)
-    model = pickle.loads(model_bytes)
-    
-    
-    scaler_bytes = read_from_s3(BUCKET_NAME, SCALER_KEY)
-    scalers = pickle.loads(scaler_bytes)
-    
-    logger.info("Model and scalers loaded successfully")
-    
-    return model, scalers['target_scaler'], scalers['covariate_scaler']
+    logger.info(f"✓ Loaded {len(models_dict)} SARIMAX models")
+    return models_dict
 
 
 def load_silver_data():
-    
     response = s3_client.get_object(Bucket=BUCKET_NAME, Key=SILVER_KEY)
     buffer = BytesIO(response['Body'].read())
     df = pd.read_parquet(buffer)
     
-    logger.info(f"Loaded {len(df)} feature rows")
+    logger.info(f"Initial load from silver: {len(df):,} rows")
+    
+    if len(df) == 0:
+        logger.error("Silver layer is empty!")
+        return df
+    
+    logger.info(f"Columns in silver: {df.columns.tolist()}")
+    logger.info(f"Groups in silver: {df['group_key'].nunique() if 'group_key' in df.columns else 'N/A'}")
+    
+    df['month'] = pd.to_datetime(df['month'], errors='coerce')
+    
+    initial_count = len(df)
+    df = df.dropna(subset=['month'])
+    if len(df) < initial_count:
+        logger.warning(f"Dropped {initial_count - len(df)} rows with invalid dates")
+    
+    if len(df) == 0:
+        logger.error("No valid dates in silver layer!")
+        return df
+    
+    max_date = df['month'].max()
+    min_date = df['month'].min()
+    logger.info(f"Date range in silver: {min_date} to {max_date}")
+    
+    logger.info(f"Using all available data (cold start mode)")
+    
+    logger.info(f"✓ Loaded {len(df):,} rows")
+    logger.info(f"✓ Groups: {df['group_key'].nunique()}")
+    
+    if len(df) == 0:
+        logger.error("All data was filtered out!")
+    
     return df
 
 
-def get_latest_data_by_group(df):
+def prepare_group_data(group_df):
+    group_df = group_df.copy()
+    group_df['month'] = pd.to_datetime(group_df['month'])
+    group_df = group_df.sort_values('month')
     
-    df['month'] = pd.to_datetime(df['month'])
-    df = df.sort_values('month')
+    group_df = group_df.set_index('month').asfreq('MS').reset_index()
     
+    req_cols = ['avg_price', 'avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']
+    for col in req_cols:
+        if col in group_df.columns:
+            group_df[col] = pd.to_numeric(group_df[col], errors='coerce')
+            group_df[col] = group_df[col].ffill().bfill()
+            
+            if group_df[col].isna().any():
+                median = group_df[col].median()
+                group_df[col] = group_df[col].fillna(0.0 if pd.isna(median) else median)
     
-    group_data = {}
-    
-    for group_key in df['group_key'].unique():
-        group_df = df[df['group_key'] == group_key].tail(12)
-        
-        if len(group_df) >= 12:  
-            group_data[group_key] = group_df
-    
-    logger.info(f"Found {len(group_data)} groups with sufficient data")
-    
-    return group_data
+    return group_df
 
 
-def generate_predictions_for_group(model, target_scaler, covariate_scaler, group_df, feature_cols):
+def generate_prediction_for_group(models_dict, group_key, group_df):
+    if group_key not in models_dict:
+        logger.warning(f"No model for {group_key}, skipping")
+        return None
+    
+    group_df = prepare_group_data(group_df)
+    
+    model_data = models_dict[group_key]
+    model = model_data.get('model')
+    y_params = model_data['y_params']
+    exog_params = model_data['exog_params']
+    last_date = model_data['last_date']
+    
+    exog_cols = ['avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']
+    
     try:
         
-        target_series = TimeSeries.from_dataframe(
-            group_df,
-            time_col='month',
-            value_cols='avg_price',
-            freq='MS'
-        )
+        current_y = group_df['avg_price'].values
+        current_exog = group_df[exog_cols].values
         
         
-        covariate_cols = [col for col in feature_cols if col != 'avg_price']
-        covariate_series = TimeSeries.from_dataframe(
-            group_df,
-            time_col='month',
-            value_cols=covariate_cols,
-            freq='MS'
-        )
+        
+        last_exog_values = current_exog[-1]
+        exog_forecast = np.tile(last_exog_values, (3, 1))
         
         
-        target_scaled = target_scaler.transform(target_series)
-        covariates_scaled = covariate_scaler.transform(covariate_series)
+        exog_forecast_scaled = np.zeros_like(exog_forecast)
+        for j, (col_min, col_max) in enumerate(exog_params):
+            exog_forecast_scaled[:, j] = (exog_forecast[:, j] - col_min) / (col_max - col_min + 1e-8)
         
         
-        prediction_scaled = model.predict(
-            n=12,
-            series=target_scaled,
-            past_covariates=covariates_scaled
-        )
+        
+        forecast_scaled = model.forecast(steps=3, exog=exog_forecast_scaled)
         
         
-        prediction = target_scaler.inverse_transform(prediction_scaled)
+        y_min, y_max = y_params
+        forecast = forecast_scaled * (y_max - y_min) + y_min
         
         
-        pred_values = prediction.values().flatten()
+        if forecast.min() < 0 or forecast.max() > 5000000:
+            logger.warning(f"Predictions out of range for {group_key}")
+            return None
         
         
-        current_avg = group_df['avg_price'].iloc[-1]
+        current_price = float(current_y[-1])
+        
+        pred_1m = float(forecast[0])
+        pred_2m = float(forecast[1])
+        pred_3m = float(forecast[2])
         
         
-        pred_6m = float(np.mean(pred_values[:6]))
-        
-        
-        pred_12m = float(np.mean(pred_values[6:12]))
-        
-        
-        if pred_12m > current_avg * 1.02:
+        if pred_1m > current_price * 1.02:
             trend = 'increasing'
-        elif pred_12m < current_avg * 0.98:
+        elif pred_1m < current_price * 0.98:
             trend = 'decreasing'
         else:
             trend = 'stable'
         
         return {
-            'current_avg_price': float(current_avg),
-            'predicted_6m_price': pred_6m,
-            'predicted_12m_price': pred_12m,
+            'current_avg_price': current_price,
+            'predicted_1m_price': pred_1m,
+            'predicted_2m_price': pred_2m,
+            'predicted_3m_price': pred_3m,
             'trend': trend,
-            'confidence_score': 0.85  
+            'confidence_score': 0.85
         }
         
     except Exception as e:
-        logger.error(f"Error generating prediction: {e}")
+        logger.warning(f"Prediction failed for {group_key}: {e}")
         return None
 
 
-def generate_all_predictions(model, target_scaler, covariate_scaler, group_data, feature_cols):
+def generate_all_predictions(models_dict, df):
+    logger.info("Generating 1-3 month predictions...")
     
     predictions = []
+    skipped = 0
     
-    for group_key, group_df in group_data.items():
-        pred = generate_predictions_for_group(
-            model, target_scaler, covariate_scaler, group_df, feature_cols
-        )
+    group_keys = sorted(df['group_key'].unique())
+    
+    for i, group_key in enumerate(group_keys):
+        if i % 10 == 0:
+            logger.info(f"Progress: {i}/{len(group_keys)} groups processed")
+        
+        group_df = df[df['group_key'] == group_key].copy()
+        
+        if len(group_df) < MIN_MONTHS_REQUIRED:
+            logger.warning(f"Skipping {group_key}: only {len(group_df)} months (need {MIN_MONTHS_REQUIRED})")
+            skipped += 1
+            continue
+        
+        pred = generate_prediction_for_group(models_dict, group_key, group_df)
         
         if pred:
-            
-            parts = group_key.split('_')
-            
-            
-            if len(parts) >= 3:
-                town = '_'.join(parts[:-2])
-                flat_type = parts[-2]
-                lease_bucket = parts[-1]
-            else:
-                logger.warning(f"Unexpected group_key format: {group_key}")
-                continue
+            region = group_df['region'].iloc[0]
+            flat_type = group_df['flat_type'].iloc[0]
             
             predictions.append({
-                'town': town,
+                'region': region,
                 'flat_type': flat_type,
-                'remaining_lease_bucket': lease_bucket,
                 'group_key': group_key,
                 **pred
             })
+        else:
+            skipped += 1
+        
+        del group_df
     
-    logger.info(f"Generated {len(predictions)} predictions")
+    logger.info(f"✓ Generated {len(predictions)} predictions")
+    logger.info(f"  Skipped {skipped} groups")
     
     return pd.DataFrame(predictions)
 
 
 def save_predictions_to_s3(df, bucket, key):
-    logger.info(f"Saving predictions to s3://{bucket}/{key}")
+    logger.info(f"Saving to s3://{bucket}/{key}")
     
     df['last_updated'] = datetime.now().isoformat()
     
@@ -207,10 +262,13 @@ def save_predictions_to_s3(df, bucket, key):
         ContentType='application/x-parquet'
     )
     
-    logger.info(f"Saved {len(df)} predictions to S3")
+    logger.info(f"✓ Saved {len(df)} predictions")
 
 
 def update_dynamodb_cache(predictions_df):
+    logger.info("Updating DynamoDB...")
+    
+    partition_key, sort_key = get_table_key_schema()
     
     success_count = 0
     error_count = 0
@@ -218,81 +276,88 @@ def update_dynamodb_cache(predictions_df):
     with table.batch_writer() as batch:
         for _, row in predictions_df.iterrows():
             try:
-                item = {
-                    'town_flattype_lease': row['group_key'],
-                    'town': row['town'],
+                item = {}
+                
+                if partition_key:
+                    item[partition_key] = row['group_key']
+                
+                if sort_key:
+                    if sort_key == 'timestamp' or sort_key == 'last_updated':
+                        item[sort_key] = row['last_updated']
+                    elif sort_key == 'region':
+                        item[sort_key] = row['region']
+                    elif sort_key == 'flat_type':
+                        item[sort_key] = row['flat_type']
+                    else:
+                        item[sort_key] = row['last_updated']
+                
+                item.update({
+                    'region': row['region'],
                     'flat_type': row['flat_type'],
-                    'remaining_lease_bucket': row['remaining_lease_bucket'],
-                    'current_avg_price': Decimal(str(row['current_avg_price'])),
-                    'predicted_6m_price': Decimal(str(row['predicted_6m_price'])),
-                    'predicted_12m_price': Decimal(str(row['predicted_12m_price'])),
+                    'group_key': row['group_key'],
+                    'current_avg_price': Decimal(str(round(row['current_avg_price'], 2))),
+                    'predicted_1m_price': Decimal(str(round(row['predicted_1m_price'], 2))),
+                    'predicted_2m_price': Decimal(str(round(row['predicted_2m_price'], 2))),
+                    'predicted_3m_price': Decimal(str(round(row['predicted_3m_price'], 2))),
                     'trend': row['trend'],
                     'confidence_score': Decimal(str(row['confidence_score'])),
                     'last_updated': row['last_updated']
-                }
+                })
                 
                 batch.put_item(Item=item)
                 success_count += 1
                 
             except Exception as e:
-                logger.error(f"Error writing to DynamoDB: {e}")
+                logger.error(f"Error writing {row['group_key']}: {e}")
                 error_count += 1
     
-    logger.info(f"DynamoDB update complete: {success_count} success, {error_count} errors")
+    logger.info(f"✓ DynamoDB: {success_count} success, {error_count} errors")
 
 
 def main():
     try:
         logger.info("=" * 60)
-        logger.info("Starting Prediction Generation Pipeline")
+        logger.info("GOLD LAYER: Prediction Generation")
+        logger.info(f"Prediction Horizon: 1-3 months (matching model training)")
+        logger.info(f"Using SARIMAX models (COLD START: {MIN_MONTHS_REQUIRED}+ months)")
         logger.info("=" * 60)
         
-        
-        model, target_scaler, covariate_scaler = load_model_and_scalers()
-        
+        models_dict = load_models()
         
         df = load_silver_data()
         
-        group_data = get_latest_data_by_group(df)
-        
-        feature_cols = [
-            'avg_price',
-            'avg_price_lag_1m',
-            'avg_price_lag_3m',
-            'avg_price_roll_3m',
-            'avg_price_roll_6m',
-            'price_change_1m',
-            'price_change_3m',
-            'month_sin',
-            'month_cos',
-            'price_per_sqm',
-            'lease_midpoint',
-            'flat_type_encoded',
-            'price_vs_market',
-            'transaction_count'
-        ]
-        
-        predictions_df = generate_all_predictions(
-            model, target_scaler, covariate_scaler, group_data, feature_cols
-        )
+        predictions_df = generate_all_predictions(models_dict, df)
         
         if len(predictions_df) == 0:
-            logger.warning("No predictions generated")
+            logger.warning("No predictions generated!")
             return False
         
         save_predictions_to_s3(predictions_df, BUCKET_NAME, PREDICTIONS_KEY)
         
         update_dynamodb_cache(predictions_df)
         
+        logger.info("\n" + "=" * 60)
+        logger.info("SUMMARY")
         logger.info("=" * 60)
-        logger.info("Prediction Generation Completed Successfully!")
-        logger.info(f"Total Predictions: {len(predictions_df)}")
+        logger.info(f"Total predictions: {len(predictions_df)}")
+        logger.info(f"Groups covered: {sorted(predictions_df['group_key'].unique())}")
+        logger.info("\nTrend distribution:")
+        logger.info(predictions_df['trend'].value_counts().to_string())
+        logger.info("\nSample predictions (first 3 groups):")
+        for _, row in predictions_df.head(3).iterrows():
+            logger.info(f"  {row['group_key']}:")
+            logger.info(f"    Current: ${row['current_avg_price']:,.0f}")
+            logger.info(f"    1-month: ${row['predicted_1m_price']:,.0f}")
+            logger.info(f"    2-month: ${row['predicted_2m_price']:,.0f}")
+            logger.info(f"    3-month: ${row['predicted_3m_price']:,.0f}")
+            logger.info(f"    Trend: {row['trend']}")
         logger.info("=" * 60)
+        logger.info("✓ Gold layer completed successfully!")
         
         return True
         
     except Exception as e:
-        logger.error(f"Prediction pipeline failed: {e}", exc_info=True)
+        logger.error(f"✗ Gold layer failed: {e}", exc_info=True)
         return False
 
 
