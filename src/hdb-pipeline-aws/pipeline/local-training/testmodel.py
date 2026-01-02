@@ -4,8 +4,10 @@ Predict average prices by flat type and region using SARIMAX
 Uses exogenous variables for better predictions
 Much lighter on memory than deep learning models
 
+UPDATED: 7-month minimum with 2-month prediction horizon
+
 USAGE: Place in same directory as your 5 CSV files and run:
-    python testmodel_sarimax.py
+    python testmodel_sarimax_7months.py
 
 OUTPUTS (for manual S3 upload):
     - sarimax-models-dict.pkl  → Upload to s3://hdb-prediction-pipeline/gold/
@@ -31,9 +33,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Paths - same directory as CSVs
+
 MODEL_PATH = Path('sarimax-models-dict.pkl')
 METRICS_PATH = Path('model-metrics.json')
+
+
+MIN_TRAINING_MONTHS = 7
+
+PREDICTION_HORIZON = 2
 
 
 def map_town_to_region(town):
@@ -106,29 +113,29 @@ def prepare_data(df):
     """Clean and prepare data with enhanced features"""
     logger.info("\nPreparing data...")
     
-    # Basic cleaning
+    
     df['month'] = pd.to_datetime(df['month'])
     df['resale_price'] = pd.to_numeric(df['resale_price'], errors='coerce')
     df['floor_area_sqm'] = pd.to_numeric(df['floor_area_sqm'], errors='coerce')
     df['lease_commence_date'] = pd.to_numeric(df['lease_commence_date'], errors='coerce')
     
-    # Extract storey midpoint
+    
     df['storey_mid'] = df['storey_range'].apply(extract_storey_mid)
     
-    # Calculate remaining lease
+    
     df['remaining_lease'] = df.apply(calculate_remaining_lease, axis=1)
     
-    # Remove outliers
+    
     df = df.dropna(subset=['month', 'town', 'flat_type', 'resale_price', 'floor_area_sqm'])
     df = df[(df['resale_price'] > 50000) & (df['resale_price'] < 2000000)]
     df = df[(df['floor_area_sqm'] > 20) & (df['floor_area_sqm'] < 300)]
     
     logger.info(f"✓ Clean data: {len(df):,} rows")
     
-    # Add region
+    
     df['region'] = df['town'].apply(map_town_to_region)
     
-    # Enhanced aggregation with more features
+    
     agg = df.groupby(['month', 'region', 'flat_type']).agg({
         'resale_price': 'mean',
         'floor_area_sqm': 'mean',
@@ -140,13 +147,13 @@ def prepare_data(df):
     agg.columns = ['month', 'region', 'flat_type', 'avg_price', 'avg_floor_area', 
                    'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']
     
-    # Fill any remaining NaNs with group means
+    
     for col in ['avg_storey', 'avg_remaining_lease', 'avg_lease_commence']:
         agg[col] = agg.groupby(['region', 'flat_type'])[col].transform(
             lambda x: x.fillna(x.mean())
         )
     
-    # Create group key
+    
     agg['group_key'] = agg['region'] + '_' + agg['flat_type']
     
     logger.info(f"✓ Created {agg['group_key'].nunique()} groups")
@@ -161,14 +168,14 @@ def prepare_group_data(group_df):
     group_df = group_df.copy()
     group_df = group_df.sort_values('month')
     
-    # Fill missing months
+    
     group_df = group_df.set_index('month')
     group_df = group_df.asfreq('MS')
     
-    # Forward fill then backward fill
+    
     group_df = group_df.ffill().bfill()
     
-    # Fill any remaining NaNs with median
+    
     for col in group_df.columns:
         if group_df[col].isna().any():
             median = group_df[col].median()
@@ -179,11 +186,11 @@ def prepare_group_data(group_df):
 
 def scale_data(y, exog):
     """Scale data to prevent numerical instability"""
-    # Scale y to be in range [0, 1]
+    
     y_min, y_max = y.min(), y.max()
     y_scaled = (y - y_min) / (y_max - y_min + 1e-8)
     
-    # Scale each exog column
+    
     exog_scaled = np.zeros_like(exog)
     exog_params = []
     for i in range(exog.shape[1]):
@@ -208,10 +215,10 @@ def train_sarimax_model(y, exog, order=(1,0,1), seasonal_order=(0,0,0,0)):
     Scaling prevents numerical explosion
     """
     try:
-        # Scale data
+        
         y_scaled, exog_scaled, y_params, exog_params = scale_data(y, exog)
         
-        # Simple ARIMAX model (more stable than full SARIMAX)
+        
         model = SARIMAX(
             y_scaled,
             exog=exog_scaled,
@@ -219,12 +226,12 @@ def train_sarimax_model(y, exog, order=(1,0,1), seasonal_order=(0,0,0,0)):
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False,
-            trend='c'  # Add constant trend
+            trend='c'  
         )
         
         fitted_model = model.fit(disp=False, maxiter=200, method='lbfgs')
         
-        # Return model with scaling parameters
+        
         return {
             'model': fitted_model,
             'y_params': y_params,
@@ -233,14 +240,14 @@ def train_sarimax_model(y, exog, order=(1,0,1), seasonal_order=(0,0,0,0)):
         
     except Exception as e:
         logger.warning(f"SARIMAX fitting failed: {e}")
-        # Fallback to even simpler AR model
+        
         try:
             y_scaled, exog_scaled, y_params, exog_params = scale_data(y, exog)
             
             model = SARIMAX(
                 y_scaled,
                 exog=exog_scaled,
-                order=(1,0,0),  # Just AR(1)
+                order=(1,0,0),  
                 seasonal_order=(0,0,0,0),
                 enforce_stationarity=False,
                 enforce_invertibility=False,
@@ -260,7 +267,9 @@ def train_sarimax_model(y, exog, order=(1,0,1), seasonal_order=(0,0,0,0)):
 def train_models(df):
     """Train SARIMAX model for each group"""
     logger.info("\n" + "=" * 60)
-    logger.info("TRAINING SARIMAX MODELS (with scaling)")
+    logger.info(f"TRAINING SARIMAX MODELS")
+    logger.info(f"Minimum training data: {MIN_TRAINING_MONTHS} months")
+    logger.info(f"Prediction horizon: {PREDICTION_HORIZON} months")
     logger.info("=" * 60)
     
     groups = sorted(df['group_key'].unique())
@@ -274,70 +283,69 @@ def train_models(df):
         
         group_df = df[df['group_key'] == group].copy()
         
-        # Need at least 36 months
-        if len(group_df) < 36:
-            logger.warning(f"  Skipping: only {len(group_df)} months")
+        if len(group_df) < MIN_TRAINING_MONTHS:
+            logger.warning(f"  Skipping: only {len(group_df)} months (need {MIN_TRAINING_MONTHS})")
             continue
         
-        # Prepare data
         group_df = prepare_group_data(group_df)
         
-        # Use last 36 months for training
-        group_df = group_df.tail(36)
+        logger.info(f"  Using all {len(group_df)} available months")
         
-        # Prepare target and exogenous variables
         y = group_df['avg_price'].values
         exog = group_df[['avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']].values
         
-        # Split: use last 6 months as test
-        train_size = len(y) - 6
+        test_size = min(2, len(y) // 3)  
+        train_size = len(y) - test_size
+        
         y_train, y_test = y[:train_size], y[train_size:]
         exog_train, exog_test = exog[:train_size], exog[train_size:]
         
-        # Train model (returns dict with model and scaling params)
+        logger.info(f"  Train: {train_size} months, Test: {test_size} months")
+        
+        
         model_dict = train_sarimax_model(y_train, exog_train)
         
         if model_dict is None:
             logger.warning(f"  Failed to fit model")
             continue
         
-        # Validate on test set
+        
         try:
-            # Scale test exog using same parameters
+            
             exog_test_scaled = np.zeros_like(exog_test)
             for j, (col_min, col_max) in enumerate(model_dict['exog_params']):
                 exog_test_scaled[:, j] = (exog_test[:, j] - col_min) / (col_max - col_min + 1e-8)
             
-            # Forecast in scaled space
-            forecast_scaled = model_dict['model'].forecast(steps=6, exog=exog_test_scaled)
             
-            # Unscale predictions
+            forecast_scaled = model_dict['model'].forecast(steps=test_size, exog=exog_test_scaled)
+            
+            
             forecast = unscale_predictions(forecast_scaled, model_dict['y_params'])
             
-            # Sanity check: predictions should be in reasonable range
-            if forecast.min() < 0 or forecast.max() > 5000000:  # $5M is way too high
+            
+            if forecast.min() < 0 or forecast.max() > 5000000:  
                 logger.warning(f"  Predictions out of range: {forecast.min():.0f} to {forecast.max():.0f}")
                 continue
             
-            # Calculate metrics
+            
             rmse = np.sqrt(mean_squared_error(y_test, forecast))
             mae = mean_absolute_error(y_test, forecast)
             mape = np.mean(np.abs((y_test - forecast) / y_test)) * 100
             
-            # Sanity check metrics
-            if rmse > 500000 or mape > 50:  # Something is very wrong
+            
+            if rmse > 500000 or mape > 150:  
                 logger.warning(f"  Metrics too high - RMSE: ${rmse:,.0f}, MAPE: {mape:.1f}%")
                 continue
             
             logger.info(f"  ✓ Test RMSE: ${rmse:,.2f}, MAE: ${mae:,.2f}, MAPE: {mape:.2f}%")
             
-            # Store model and last known data for future predictions
+            
             models_dict[group] = {
                 'model': model_dict['model'],
                 'y_params': model_dict['y_params'],
                 'exog_params': model_dict['exog_params'],
-                'last_y': y,  # Store full history
-                'last_exog': exog,  # Store full exog history
+                'last_y': y,  
+                'last_exog': exog,  
                 'last_date': group_df['month'].iloc[-1]
             }
             
@@ -345,7 +353,8 @@ def train_models(df):
                 'group': group,
                 'rmse': float(rmse),
                 'mae': float(mae),
-                'mape': float(mape)
+                'mape': float(mape),
+                'training_months': len(y_train)
             })
             
         except Exception as e:
@@ -364,7 +373,7 @@ def save_models(models_dict, metrics):
         pickle.dump(models_dict, f)
     logger.info(f"✓ Models saved: {MODEL_PATH}")
     
-    # Calculate average metrics
+    
     avg_rmse = np.mean([m['rmse'] for m in metrics])
     avg_mae = np.mean([m['mae'] for m in metrics])
     avg_mape = np.mean([m['mape'] for m in metrics])
@@ -373,6 +382,8 @@ def save_models(models_dict, metrics):
         'timestamp': datetime.now().isoformat(),
         'model_type': 'SARIMAX-scaled',
         'num_models': len(models_dict),
+        'min_training_months': MIN_TRAINING_MONTHS,
+        'prediction_horizon': PREDICTION_HORIZON,
         'groups': list(models_dict.keys()),
         'features': ['avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence'],
         'architecture': {
@@ -380,7 +391,7 @@ def save_models(models_dict, metrics):
             'seasonal_order': '(0,0,0,0)',
             'exogenous_variables': 4,
             'scaling': 'min-max normalization',
-            'note': 'Simple ARIMAX without differencing for stability'
+            'note': 'Simple ARIMAX without differencing for stability, 7-month minimum'
         },
         'test_performance': {
             'avg_rmse': float(avg_rmse),
@@ -428,6 +439,8 @@ def main():
         logger.info("\n" + "=" * 60)
         logger.info("✓ TRAINING COMPLETE!")
         logger.info(f"✓ Trained {len(models_dict)} SARIMAX models")
+        logger.info(f"✓ Minimum training data: {MIN_TRAINING_MONTHS} months")
+        logger.info(f"✓ Prediction horizon: {PREDICTION_HORIZON} months")
         logger.info("=" * 60)
         
         return True

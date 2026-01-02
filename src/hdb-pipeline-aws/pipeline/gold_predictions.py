@@ -1,6 +1,6 @@
 """
 Gold Layer: Generate Predictions using SARIMAX Models
-FIXED: Proper model state updates for accurate predictions
+UPDATED: 7-month minimum with 2-month predictions (next month + month after)
 """
 
 import pandas as pd
@@ -26,7 +26,10 @@ MODEL_KEY = 'gold/sarimax-models-dict.pkl'
 PREDICTIONS_KEY = 'gold/predictions-cache.parquet'
 DYNAMODB_TABLE = 'hdb-predictions'
 
-MIN_MONTHS_REQUIRED = 4
+# CHANGED: Match training requirement of 7 months
+MIN_MONTHS_REQUIRED = 7
+# CHANGED: Predict only 2 months ahead
+PREDICTION_HORIZON = 2
 
 s3_client = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -69,6 +72,7 @@ def load_models():
         raise ValueError("Models must be a dict")
     
     logger.info(f"✓ Loaded {len(models_dict)} SARIMAX models")
+    logger.info(f"✓ Models for groups: {sorted(models_dict.keys())}")
     return models_dict
 
 
@@ -113,12 +117,15 @@ def load_silver_data():
 
 
 def prepare_group_data(group_df):
+    """Prepare data for one group - fill missing months"""
     group_df = group_df.copy()
     group_df['month'] = pd.to_datetime(group_df['month'])
     group_df = group_df.sort_values('month')
     
+    # Fill missing months
     group_df = group_df.set_index('month').asfreq('MS').reset_index()
     
+    # Forward fill then backward fill
     req_cols = ['avg_price', 'avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']
     for col in req_cols:
         if col in group_df.columns:
@@ -133,6 +140,10 @@ def prepare_group_data(group_df):
 
 
 def generate_prediction_for_group(models_dict, group_key, group_df):
+    """
+    Generate predictions for one group
+    UPDATED: 2-month predictions only (next month + month after)
+    """
     if group_key not in models_dict:
         logger.warning(f"No model for {group_key}, skipping")
         return None
@@ -148,41 +159,60 @@ def generate_prediction_for_group(models_dict, group_key, group_df):
     exog_cols = ['avg_floor_area', 'avg_storey', 'avg_remaining_lease', 'avg_lease_commence']
     
     try:
-        
+        # Get current data
         current_y = group_df['avg_price'].values
         current_exog = group_df[exog_cols].values
         
+        # CRITICAL: Update model with new data since training
+        new_data_mask = group_df['month'] > last_date
         
+        if new_data_mask.any():
+            logger.info(f"  Updating {group_key} with {new_data_mask.sum()} new observations")
+            
+            # Get new observations
+            new_y = current_y[new_data_mask]
+            new_exog = current_exog[new_data_mask]
+            
+            # Scale new data using training parameters
+            y_min, y_max = y_params
+            new_y_scaled = (new_y - y_min) / (y_max - y_min + 1e-8)
+            
+            new_exog_scaled = np.zeros_like(new_exog)
+            for j, (col_min, col_max) in enumerate(exog_params):
+                new_exog_scaled[:, j] = (new_exog[:, j] - col_min) / (col_max - col_min + 1e-8)
+            
+            # Update model state with new observations
+            model = model.apply(new_y_scaled, exog=new_exog_scaled)
         
+        # Prepare exogenous variables for forecast
+        # Use last known values for future predictions
         last_exog_values = current_exog[-1]
-        exog_forecast = np.tile(last_exog_values, (3, 1))
+        exog_forecast = np.tile(last_exog_values, (PREDICTION_HORIZON, 1))
         
-        
+        # Scale forecast exogenous variables
         exog_forecast_scaled = np.zeros_like(exog_forecast)
         for j, (col_min, col_max) in enumerate(exog_params):
             exog_forecast_scaled[:, j] = (exog_forecast[:, j] - col_min) / (col_max - col_min + 1e-8)
         
+        # Forecast from updated model state
+        forecast_scaled = model.forecast(steps=PREDICTION_HORIZON, exog=exog_forecast_scaled)
         
-        
-        forecast_scaled = model.forecast(steps=3, exog=exog_forecast_scaled)
-        
-        
+        # Unscale predictions back to original price range
         y_min, y_max = y_params
         forecast = forecast_scaled * (y_max - y_min) + y_min
         
-        
+        # Sanity check
         if forecast.min() < 0 or forecast.max() > 5000000:
-            logger.warning(f"Predictions out of range for {group_key}")
+            logger.warning(f"Predictions out of range for {group_key}: {forecast.min():.0f} to {forecast.max():.0f}")
             return None
         
-        
+        # Extract predictions
         current_price = float(current_y[-1])
         
-        pred_1m = float(forecast[0])
-        pred_2m = float(forecast[1])
-        pred_3m = float(forecast[2])
+        pred_1m = float(forecast[0])  # Next month
+        pred_2m = float(forecast[1])  # Month after next
         
-        
+        # Determine trend based on next month prediction
         if pred_1m > current_price * 1.02:
             trend = 'increasing'
         elif pred_1m < current_price * 0.98:
@@ -190,13 +220,14 @@ def generate_prediction_for_group(models_dict, group_key, group_df):
         else:
             trend = 'stable'
         
+        logger.info(f"  {group_key}: ${current_price:,.0f} → ${pred_1m:,.0f} → ${pred_2m:,.0f} ({trend})")
+        
         return {
             'current_avg_price': current_price,
             'predicted_1m_price': pred_1m,
             'predicted_2m_price': pred_2m,
-            'predicted_3m_price': pred_3m,
             'trend': trend,
-            'confidence_score': 0.85
+            'confidence_score': 0.80  # Slightly lower for 7-month models
         }
         
     except Exception as e:
@@ -205,12 +236,31 @@ def generate_prediction_for_group(models_dict, group_key, group_df):
 
 
 def generate_all_predictions(models_dict, df):
-    logger.info("Generating 1-3 month predictions...")
+    """Generate predictions for all groups"""
+    logger.info("\n" + "=" * 60)
+    logger.info(f"Generating {PREDICTION_HORIZON}-month predictions...")
+    logger.info("=" * 60)
     
     predictions = []
     skipped = 0
+    no_model = 0
     
     group_keys = sorted(df['group_key'].unique())
+    
+    # Diagnostic: Check overlap
+    models_available = set(models_dict.keys())
+    groups_in_data = set(group_keys)
+    
+    logger.info(f"\nDiagnostic Info:")
+    logger.info(f"  Models available: {len(models_available)}")
+    logger.info(f"  Groups in data: {len(groups_in_data)}")
+    logger.info(f"  Overlap: {len(models_available & groups_in_data)}")
+    
+    missing_models = groups_in_data - models_available
+    if missing_models:
+        logger.warning(f"  Groups without models: {sorted(missing_models)}")
+    
+    logger.info("")
     
     for i, group_key in enumerate(group_keys):
         if i % 10 == 0:
@@ -218,11 +268,18 @@ def generate_all_predictions(models_dict, df):
         
         group_df = df[df['group_key'] == group_key].copy()
         
+        # Check minimum months requirement
         if len(group_df) < MIN_MONTHS_REQUIRED:
             logger.warning(f"Skipping {group_key}: only {len(group_df)} months (need {MIN_MONTHS_REQUIRED})")
             skipped += 1
             continue
         
+        # Check if model exists
+        if group_key not in models_dict:
+            no_model += 1
+            continue
+        
+        # Generate prediction
         pred = generate_prediction_for_group(models_dict, group_key, group_df)
         
         if pred:
@@ -240,8 +297,9 @@ def generate_all_predictions(models_dict, df):
         
         del group_df
     
-    logger.info(f"✓ Generated {len(predictions)} predictions")
-    logger.info(f"  Skipped {skipped} groups")
+    logger.info(f"\n✓ Generated {len(predictions)} predictions")
+    logger.info(f"  Skipped (insufficient data): {skipped}")
+    logger.info(f"  Skipped (no model): {no_model}")
     
     return pd.DataFrame(predictions)
 
@@ -298,7 +356,6 @@ def update_dynamodb_cache(predictions_df):
                     'current_avg_price': Decimal(str(round(row['current_avg_price'], 2))),
                     'predicted_1m_price': Decimal(str(round(row['predicted_1m_price'], 2))),
                     'predicted_2m_price': Decimal(str(round(row['predicted_2m_price'], 2))),
-                    'predicted_3m_price': Decimal(str(round(row['predicted_3m_price'], 2))),
                     'trend': row['trend'],
                     'confidence_score': Decimal(str(row['confidence_score'])),
                     'last_updated': row['last_updated']
@@ -318,24 +375,30 @@ def main():
     try:
         logger.info("=" * 60)
         logger.info("GOLD LAYER: Prediction Generation")
-        logger.info(f"Prediction Horizon: 1-3 months (matching model training)")
-        logger.info(f"Using SARIMAX models (COLD START: {MIN_MONTHS_REQUIRED}+ months)")
+        logger.info(f"Minimum data required: {MIN_MONTHS_REQUIRED} months")
+        logger.info(f"Prediction horizon: {PREDICTION_HORIZON} months (next month + month after)")
         logger.info("=" * 60)
         
+        # Load models
         models_dict = load_models()
         
+        # Load data
         df = load_silver_data()
         
+        # Generate predictions
         predictions_df = generate_all_predictions(models_dict, df)
         
         if len(predictions_df) == 0:
             logger.warning("No predictions generated!")
             return False
         
+        # Save to S3
         save_predictions_to_s3(predictions_df, BUCKET_NAME, PREDICTIONS_KEY)
         
+        # Update DynamoDB
         update_dynamodb_cache(predictions_df)
         
+        # Summary
         logger.info("\n" + "=" * 60)
         logger.info("SUMMARY")
         logger.info("=" * 60)
@@ -343,13 +406,12 @@ def main():
         logger.info(f"Groups covered: {sorted(predictions_df['group_key'].unique())}")
         logger.info("\nTrend distribution:")
         logger.info(predictions_df['trend'].value_counts().to_string())
-        logger.info("\nSample predictions (first 3 groups):")
-        for _, row in predictions_df.head(3).iterrows():
+        logger.info("\nSample predictions (first 5 groups):")
+        for _, row in predictions_df.head(5).iterrows():
             logger.info(f"  {row['group_key']}:")
-            logger.info(f"    Current: ${row['current_avg_price']:,.0f}")
-            logger.info(f"    1-month: ${row['predicted_1m_price']:,.0f}")
-            logger.info(f"    2-month: ${row['predicted_2m_price']:,.0f}")
-            logger.info(f"    3-month: ${row['predicted_3m_price']:,.0f}")
+            logger.info(f"    Current:      ${row['current_avg_price']:,.0f}")
+            logger.info(f"    Next month:   ${row['predicted_1m_price']:,.0f}")
+            logger.info(f"    Month after:  ${row['predicted_2m_price']:,.0f}")
             logger.info(f"    Trend: {row['trend']}")
         logger.info("=" * 60)
         logger.info("✓ Gold layer completed successfully!")

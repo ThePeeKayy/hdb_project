@@ -21,7 +21,6 @@ interface PredictionData {
   current_avg_price: number
   predicted_1m_price: number
   predicted_2m_price: number
-  predicted_3m_price: number
   trend: string
   confidence_score?: number
   last_updated?: string
@@ -519,9 +518,6 @@ export default function HDBResellPage() {
                     <th className="px-6 py-4 text-right text-xs font-bold text-slate-300 uppercase tracking-wider">
                       2 Months
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      3 Months
-                    </th>
                     <th className="px-6 py-4 text-center text-xs font-bold text-slate-300 uppercase tracking-wider">
                       Trend
                     </th>
@@ -531,7 +527,6 @@ export default function HDBResellPage() {
                   {filteredData.map((pred, idx) => {
                     const change1m = getPriceChange(pred.current_avg_price, pred.predicted_1m_price)
                     const change2m = getPriceChange(pred.current_avg_price, pred.predicted_2m_price)
-                    const change3m = getPriceChange(pred.current_avg_price, pred.predicted_3m_price)
 
                     return (
                       <tr key={idx} className="hover:bg-white/5 transition-colors group">
@@ -560,15 +555,6 @@ export default function HDBResellPage() {
                           >
                             {change2m >= 0 ? "+" : ""}
                             {change2m.toFixed(1)}%
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 whitespace-nowrap text-right">
-                          <div className="text-base font-bold text-white">{formatPrice(pred.predicted_3m_price)}</div>
-                          <div
-                            className={`text-xs font-semibold mt-0.5 ${change3m >= 0 ? "text-emerald-400" : "text-rose-400"}`}
-                          >
-                            {change3m >= 0 ? "+" : ""}
-                            {change3m.toFixed(1)}%
                           </div>
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-center">
