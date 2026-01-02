@@ -1,0 +1,195 @@
+{
+  "timestamp": "2026-01-02T14:34:36.138532",
+  "model_type": "SARIMAX-scaled",
+  "num_models": 24,
+  "groups": [
+    "CENTRAL_1 ROOM",
+    "CENTRAL_2 ROOM",
+    "CENTRAL_3 ROOM",
+    "CENTRAL_4 ROOM",
+    "CENTRAL_5 ROOM",
+    "CENTRAL_EXECUTIVE",
+    "CENTRAL_MULTI-GENERATION",
+    "EAST_2 ROOM",
+    "EAST_3 ROOM",
+    "EAST_4 ROOM",
+    "EAST_5 ROOM",
+    "EAST_EXECUTIVE",
+    "EAST_MULTI-GENERATION",
+    "NORTH_2 ROOM",
+    "NORTH_3 ROOM",
+    "NORTH_4 ROOM",
+    "NORTH_5 ROOM",
+    "NORTH_EXECUTIVE",
+    "NORTH_MULTI-GENERATION",
+    "WEST_2 ROOM",
+    "WEST_3 ROOM",
+    "WEST_4 ROOM",
+    "WEST_5 ROOM",
+    "WEST_EXECUTIVE"
+  ],
+  "features": [
+    "avg_floor_area",
+    "avg_storey",
+    "avg_remaining_lease",
+    "avg_lease_commence"
+  ],
+  "architecture": {
+    "base_order": "(1,0,1)",
+    "seasonal_order": "(0,0,0,0)",
+    "exogenous_variables": 4,
+    "scaling": "min-max normalization",
+    "note": "Simple ARIMAX without differencing for stability"
+  },
+  "test_performance": {
+    "avg_rmse": 36461.847153920775,
+    "avg_mae": 29182.948112281545,
+    "avg_mape": 3.56616331923633
+  },
+  "individual_metrics": [
+    {
+      "group": "CENTRAL_1 ROOM",
+      "rmse": 1042.202569381194,
+      "mae": 767.6512236866984,
+      "mape": 0.28389224700602245
+    },
+    {
+      "group": "CENTRAL_2 ROOM",
+      "rmse": 17456.081770916415,
+      "mae": 13137.92296063803,
+      "mape": 3.874901178879022
+    },
+    {
+      "group": "CENTRAL_3 ROOM",
+      "rmse": 28906.311830950723,
+      "mae": 26964.902567831014,
+      "mape": 5.5720709847365875
+    },
+    {
+      "group": "CENTRAL_4 ROOM",
+      "rmse": 27808.290685962256,
+      "mae": 26007.619278388796,
+      "mape": 2.9451744033901144
+    },
+    {
+      "group": "CENTRAL_5 ROOM",
+      "rmse": 42709.96864911292,
+      "mae": 37107.998269470176,
+      "mape": 3.521653357956126
+    },
+    {
+      "group": "CENTRAL_EXECUTIVE",
+      "rmse": 92839.65932148891,
+      "mae": 76624.7844938793,
+      "mape": 6.109285305437712
+    },
+    {
+      "group": "CENTRAL_MULTI-GENERATION",
+      "rmse": 142433.21927609792,
+      "mae": 58148.419241131305,
+      "mape": 4.186697906109474
+    },
+    {
+      "group": "EAST_2 ROOM",
+      "rmse": 17388.01935029379,
+      "mae": 14987.031752751907,
+      "mape": 3.803298205610566
+    },
+    {
+      "group": "EAST_3 ROOM",
+      "rmse": 18342.17034549487,
+      "mae": 16483.999802082777,
+      "mape": 3.4924584180226628
+    },
+    {
+      "group": "EAST_4 ROOM",
+      "rmse": 26295.887195437717,
+      "mae": 24077.349440746842,
+      "mape": 3.618331542579991
+    },
+    {
+      "group": "EAST_5 ROOM",
+      "rmse": 16593.750283885463,
+      "mae": 15750.553927152205,
+      "mape": 1.9641952809850889
+    },
+    {
+      "group": "EAST_EXECUTIVE",
+      "rmse": 43519.590471167394,
+      "mae": 35937.06258985136,
+      "mape": 3.792288313171941
+    },
+    {
+      "group": "EAST_MULTI-GENERATION",
+      "rmse": 134844.37721473377,
+      "mae": 134746.5737844698,
+      "mape": 12.819910056360193
+    },
+    {
+      "group": "NORTH_2 ROOM",
+      "rmse": 6898.506437065893,
+      "mae": 6365.299756490519,
+      "mape": 1.6700016564946154
+    },
+    {
+      "group": "NORTH_3 ROOM",
+      "rmse": 10060.146851107242,
+      "mae": 8868.83135410828,
+      "mape": 1.877486148898344
+    },
+    {
+      "group": "NORTH_4 ROOM",
+      "rmse": 16489.128416476357,
+      "mae": 12947.494212762374,
+      "mape": 2.071529358693102
+    },
+    {
+      "group": "NORTH_5 ROOM",
+      "rmse": 12172.330085732181,
+      "mae": 9031.785619764685,
+      "mape": 1.233043946586133
+    },
+    {
+      "group": "NORTH_EXECUTIVE",
+      "rmse": 36948.670154064166,
+      "mae": 34934.15276129887,
+      "mape": 3.818129388414069
+    },
+    {
+      "group": "NORTH_MULTI-GENERATION",
+      "rmse": 96676.2472503778,
+      "mae": 71845.94435614817,
+      "mape": 6.96749641285702
+    },
+    {
+      "group": "WEST_2 ROOM",
+      "rmse": 5394.446575699372,
+      "mae": 4231.080394579204,
+      "mape": 1.1196283441409278
+    },
+    {
+      "group": "WEST_3 ROOM",
+      "rmse": 14813.91866265384,
+      "mae": 12379.627603788482,
+      "mape": 2.8759093187492453
+    },
+    {
+      "group": "WEST_4 ROOM",
+      "rmse": 8253.147953914848,
+      "mae": 7037.168609155905,
+      "mape": 1.165637015472181
+    },
+    {
+      "group": "WEST_5 ROOM",
+      "rmse": 33691.295189349985,
+      "mae": 31483.339884422894,
+      "mape": 4.37850895879428
+    },
+    {
+      "group": "WEST_EXECUTIVE",
+      "rmse": 23506.965152733774,
+      "mae": 20524.1608101575,
+      "mape": 2.426391912326506
+    }
+  ]
+}
