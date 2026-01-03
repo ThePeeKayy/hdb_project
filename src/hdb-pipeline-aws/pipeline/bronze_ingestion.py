@@ -1,8 +1,7 @@
 """
-Bronze Layer: Data Ingestion from data.gov.sg
-Matches ULTRA-SIMPLE NHiTS model structure
-Runs on EC2 t4g.micro
-Execution time: ~2 minutes
+Bronze Layer: Simple Current Month Check
+Just checks if current month exists in parquet, if not, appends it
+Runs monthly via cron on EC2 t4g.micro
 """
 
 import requests
@@ -29,15 +28,14 @@ s3_client = boto3.client('s3')
 
 
 def map_town_to_region(town):
-    """Map town to Singapore region - EXACT match with NHiTS training"""
-    central = ['BISHAN', 'BUKIT MERAH', 'BUKIT TIMAH', 'CENTRAL AREA', 'GEYLANG', 
+    central = ['BISHAN', 'BUKIT MERAH', 'BUKIT TIMAH', 'CENTRAL AREA', 'GEYLANG',
                'KALLANG/WHAMPOA', 'MARINE PARADE', 'QUEENSTOWN', 'TOA PAYOH']
     east = ['BEDOK', 'PASIR RIS', 'TAMPINES']
-    north = ['ANG MO KIO', 'HOUGANG', 'PUNGGOL', 'SENGKANG', 'SERANGOON', 
+    north = ['ANG MO KIO', 'HOUGANG', 'PUNGGOL', 'SENGKANG', 'SERANGOON',
              'SEMBAWANG', 'WOODLANDS', 'YISHUN']
-    west = ['BUKIT BATOK', 'BUKIT PANJANG', 'CHOA CHU KANG', 'CLEMENTI', 
+    west = ['BUKIT BATOK', 'BUKIT PANJANG', 'CHOA CHU KANG', 'CLEMENTI',
             'JURONG EAST', 'JURONG WEST', 'LIM CHU KANG']
-    
+
     if town in central:
         return 'CENTRAL'
     elif town in east:
@@ -50,75 +48,94 @@ def map_town_to_region(town):
         return 'OTHERS'
 
 
-def fetch_all_records():
-    """Fetch all records from data.gov.sg API"""
-    all_records = []
-    offset = 0
-    
-    while True:
-        try:
-            params = {
-                'resource_id': RESOURCE_ID,
-                'limit': 100,
-                'offset': offset
-            }
-            
-            response = requests.get(DATA_GOV_API, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if not data.get('success'):
-                logger.error(f"API returned unsuccessful response: {data}")
-                break
-                
-            records = data.get('result', {}).get('records', [])
-            
-            if not records:
-                break
-                
-            all_records.extend(records)
-            logger.info(f"Fetched {len(all_records)} records so far...")
-                
-            offset += 100
-            
-        except Exception as e:
-            logger.error(f"Error fetching data at offset {offset}: {e}")
-            break
-    
-    logger.info(f"Total records fetched: {len(all_records)}")
-    return all_records
+def get_current_month_string():
+    now = datetime.now()
+    return now.strftime('%Y-%m')
 
 
-def clean_and_validate_data(records):
-    """Clean data - EXACT match with NHiTS training cleaning"""
+def load_parquet_from_s3(bucket, key):
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    buffer = BytesIO(response['Body'].read())
+    df = pd.read_parquet(buffer)
+    logger.info(f"Loaded {len(df):,} rows from S3")
+    
+    df['month'] = pd.to_datetime(df['month'], errors='coerce')
+    
+    current_month = datetime.now()
+    five_years_ago = current_month.replace(year=current_month.year - 5)
+    
+    original_count = len(df)
+    df = df[df['month'] >= five_years_ago]
+    removed_count = original_count - len(df)
+    
+    if removed_count > 0:
+        logger.info(f"Removed {removed_count:,} rows older than {five_years_ago.strftime('%Y-%m')}")
+    
+    return df
+
+
+def month_exists_in_df(df, target_month):
+    df['month'] = pd.to_datetime(df['month'], errors='coerce')
+    existing_months = df['month'].dt.strftime('%Y-%m').unique()
+    exists = target_month in existing_months
+    logger.info(f"Month {target_month} exists: {exists}")
+    return exists
+
+
+def fetch_current_month_from_api(target_month):
+    logger.info(f"Fetching records for {target_month}")
+    
+    params = {
+        'resource_id': RESOURCE_ID,
+        'limit': 10000,
+        'sort': 'month desc'
+    }
+    
+    resp = requests.get(DATA_GOV_API, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    
+    if not data.get('success'):
+        raise RuntimeError(f"API failed: {data}")
+    
+    records = data['result']['records']
+    filtered = [r for r in records if r.get('month', '').startswith(target_month)]
+    
+    logger.info(f"Found {len(filtered)} records for {target_month}")
+    return filtered
+
+
+def clean_data(records):
     df = pd.DataFrame(records)
     
-    logger.info(f"Initial shape: {df.shape}")
-    
+    if df.empty:
+        return df
     
     df['month'] = pd.to_datetime(df['month'], errors='coerce')
     df['resale_price'] = pd.to_numeric(df['resale_price'], errors='coerce')
     df['floor_area_sqm'] = pd.to_numeric(df['floor_area_sqm'], errors='coerce')
     
+    if 'lease_commence_date' in df.columns:
+        df['lease_commence_date'] = pd.to_numeric(df['lease_commence_date'], errors='coerce').astype('Int64')
     
     df = df.dropna(subset=['month', 'town', 'flat_type', 'resale_price', 'floor_area_sqm'])
     df = df[(df['resale_price'] > 50000) & (df['resale_price'] < 2000000)]
     df = df[(df['floor_area_sqm'] > 20) & (df['floor_area_sqm'] < 300)]
     
-    logger.info(f"After cleaning: {len(df):,} rows")
-    
-    
     df['region'] = df['town'].apply(map_town_to_region)
-    
-    logger.info(f"Region distribution:\n{df['region'].value_counts()}")
     
     return df
 
-
 def upload_to_s3(df, bucket, key):
-    """Upload to S3 as Parquet"""
-    table = pa.Table.from_pandas(df)
+    df_copy = df.copy()
+    
+    if 'lease_commence_date' in df_copy.columns:
+        df_copy['lease_commence_date'] = pd.to_numeric(df_copy['lease_commence_date'], errors='coerce').astype('Int64')
+    
+    if 'remaining_lease' in df_copy.columns:
+        df_copy['remaining_lease'] = df_copy['remaining_lease'].astype(str)
+    
+    table = pa.Table.from_pandas(df_copy)
     buffer = BytesIO()
     pq.write_table(table, buffer, compression='snappy')
     
@@ -130,40 +147,48 @@ def upload_to_s3(df, bucket, key):
         ContentType='application/x-parquet'
     )
     
-    logger.info(f"✓ Uploaded {df.shape[0]:,} rows to s3://{bucket}/{key}")
+    logger.info(f"Uploaded {len(df):,} rows to s3://{bucket}/{key}")
 
 
 def main():
-    """Main execution"""
     try:
-        logger.info("=" * 60)
-        logger.info("BRONZE LAYER: Data Ingestion")
-        logger.info("=" * 60)
+        current_month = get_current_month_string()
+        logger.info(f"Current month: {current_month}")
         
+        existing_df = load_parquet_from_s3(BUCKET_NAME, BRONZE_KEY)
         
-        records = fetch_all_records()
+        if month_exists_in_df(existing_df, current_month):
+            logger.info(f"Month {current_month} already exists. Nothing to do.")
+            return existing_df
+        
+        records = fetch_current_month_from_api(current_month)
         
         if not records:
-            logger.error("No records fetched. Exiting.")
-            return False
+            logger.warning(f"No data available for {current_month}")
+            return existing_df
         
+        new_df = clean_data(records)
         
-        df = clean_and_validate_data(records)
+        if new_df.empty:
+            logger.warning("No valid records after cleaning")
+            return existing_df
         
+        if 'ingestion_timestamp' in existing_df.columns:
+            existing_df = existing_df.drop(columns=['ingestion_timestamp'])
         
-        df['ingestion_timestamp'] = datetime.now()
+        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+        combined_df['ingestion_timestamp'] = datetime.now()
         
+        upload_to_s3(combined_df, BUCKET_NAME, BRONZE_KEY)
         
-        upload_to_s3(df, BUCKET_NAME, BRONZE_KEY)
-        
-        logger.info("✓ Bronze layer completed successfully!")
-        return True
+        logger.info(f"Added {len(new_df):,} rows for {current_month}. Total: {len(combined_df):,}")
+        return combined_df
         
     except Exception as e:
-        logger.error(f"✗ Bronze layer failed: {e}", exc_info=True)
-        return False
+        logger.error(f"Failed: {e}", exc_info=True)
+        raise
 
 
 if __name__ == '__main__':
-    success = main()
-    exit(0 if success else 1)
+    df = main()
+    exit(0)

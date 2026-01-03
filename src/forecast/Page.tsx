@@ -2,15 +2,6 @@
 
 import { useState, useEffect } from "react"
 import {
-  TrendingUp,
-  Filter,
-  X,
-  Activity,
-  Database,
-  Layers,
-  Sparkles,
-  ArrowRight,
-  Clock,
   ChevronDown,
 } from "lucide-react"
 
@@ -19,8 +10,8 @@ interface PredictionData {
   flat_type: string
   group_key: string
   current_avg_price: number
-  predicted_1m_price: number
-  predicted_2m_price: number
+  predicted_6m_price: number
+  predicted_12m_price: number
   trend: string
   confidence_score?: number
   last_updated?: string
@@ -187,7 +178,6 @@ export default function HDBResellPage() {
             onClick={() => setShowMetrics(!showMetrics)}
             className="backdrop-blur-xl bg-white/5 border border-white/10 hover:bg-white/10 rounded-xl px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 flex items-center gap-2 hover:scale-105 active:scale-95"
           >
-            <Activity className="w-4 h-4" />
             {showMetrics ? "Hide" : "View"} Model Performance
           </button>
         </div>
@@ -196,14 +186,12 @@ export default function HDBResellPage() {
           <div className="backdrop-blur-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-2xl p-6 lg:p-8 mb-8 animate-in fade-in slide-in-from-top duration-300">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-semibold text-white flex items-center gap-2">
-                <Activity className="w-5 h-5 text-cyan-400" />
                 Model Performance Metrics
               </h3>
               <button
                 onClick={() => setShowMetrics(false)}
                 className="text-slate-400 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
               >
-                <X className="w-5 h-5" />
               </button>
             </div>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
@@ -258,9 +246,6 @@ export default function HDBResellPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
               <div className="backdrop-blur-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-xl p-6 hover:scale-105 transition-all duration-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="backdrop-blur-xl bg-amber-500/20 border border-amber-500/30 rounded-lg p-3">
-                    <Database className="w-6 h-6 text-amber-300" />
-                  </div>
                   <span className="text-xs font-bold text-amber-300 backdrop-blur-xl bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
                     LAYER 1
                   </span>
@@ -288,9 +273,6 @@ export default function HDBResellPage() {
 
               <div className="backdrop-blur-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-blue-500/20 rounded-xl p-6 hover:scale-105 transition-all duration-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="backdrop-blur-xl bg-blue-500/20 border border-blue-500/30 rounded-lg p-3">
-                    <Layers className="w-6 h-6 text-blue-300" />
-                  </div>
                   <span className="text-xs font-bold text-blue-300 backdrop-blur-xl bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/20">
                     LAYER 2
                   </span>
@@ -318,9 +300,6 @@ export default function HDBResellPage() {
 
               <div className="backdrop-blur-xl bg-gradient-to-br from-emerald-500/10 to-cyan-500/10 border border-emerald-500/20 rounded-xl p-6 hover:scale-105 transition-all duration-300">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="backdrop-blur-xl bg-emerald-500/20 border border-emerald-500/30 rounded-lg p-3">
-                    <Sparkles className="w-6 h-6 text-emerald-300" />
-                  </div>
                   <span className="text-xs font-bold text-emerald-300 backdrop-blur-xl bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
                     LAYER 3
                   </span>
@@ -350,20 +329,15 @@ export default function HDBResellPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
               <div className="backdrop-blur-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-lg p-4">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="backdrop-blur-xl bg-cyan-500/20 border border-cyan-500/30 rounded-lg p-2">
-                    <Clock className="w-4 h-4 text-cyan-300" />
-                  </div>
-                  <h4 className="font-bold text-white">Daily Pipeline</h4>
+                  <h4 className="font-bold text-white">Monthly Pipeline</h4>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-300">
                   <span className="backdrop-blur-xl bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded">
                     Bronze
                   </span>
-                  <ArrowRight className="w-3 h-3 text-slate-500" />
                   <span className="backdrop-blur-xl bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded">
                     Silver
                   </span>
-                  <ArrowRight className="w-3 h-3 text-slate-500" />
                   <span className="backdrop-blur-xl bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded">
                     Gold
                   </span>
@@ -372,10 +346,7 @@ export default function HDBResellPage() {
 
               <div className="backdrop-blur-xl bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-lg p-4">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="backdrop-blur-xl bg-purple-500/20 border border-purple-500/30 rounded-lg p-2">
-                    <Activity className="w-4 h-4 text-purple-300" />
-                  </div>
-                  <h4 className="font-bold text-white">Weekly Retrain</h4>
+                  <h4 className="font-bold text-white">Tri-Monthly Retrain</h4>
                 </div>
                 <p className="text-xs text-slate-300">Update SARIMAX models incrementally on t4g.nano EC2</p>
               </div>
@@ -477,7 +448,6 @@ export default function HDBResellPage() {
                 }}
                 className="text-sm text-cyan-400 hover:text-cyan-300 font-medium transition-colors flex items-center gap-1"
               >
-                <X className="w-4 h-4" />
                 Clear Filters
               </button>
             )}
@@ -513,10 +483,10 @@ export default function HDBResellPage() {
                       Current
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      1 Month
+                      6 Months
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-bold text-slate-300 uppercase tracking-wider">
-                      2 Months
+                      12 Months
                     </th>
                     <th className="px-6 py-4 text-center text-xs font-bold text-slate-300 uppercase tracking-wider">
                       Trend
@@ -525,8 +495,8 @@ export default function HDBResellPage() {
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {filteredData.map((pred, idx) => {
-                    const change1m = getPriceChange(pred.current_avg_price, pred.predicted_1m_price)
-                    const change2m = getPriceChange(pred.current_avg_price, pred.predicted_2m_price)
+                    const change6m = getPriceChange(pred.current_avg_price, pred.predicted_6m_price)
+                    const change12m = getPriceChange(pred.current_avg_price, pred.predicted_12m_price)
 
                     return (
                       <tr key={idx} className="hover:bg-white/5 transition-colors group">
@@ -540,21 +510,21 @@ export default function HDBResellPage() {
                           <div className="text-base font-bold text-white">{formatPrice(pred.current_avg_price)}</div>
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-right">
-                          <div className="text-base font-bold text-white">{formatPrice(pred.predicted_1m_price)}</div>
+                          <div className="text-base font-bold text-white">{formatPrice(pred.predicted_6m_price)}</div>
                           <div
-                            className={`text-xs font-semibold mt-0.5 ${change1m >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                            className={`text-xs font-semibold mt-0.5 ${change6m >= 0 ? "text-emerald-400" : "text-rose-400"}`}
                           >
-                            {change1m >= 0 ? "+" : ""}
-                            {change1m.toFixed(1)}%
+                            {change6m >= 0 ? "+" : ""}
+                            {change6m.toFixed(1)}%
                           </div>
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-right">
-                          <div className="text-base font-bold text-white">{formatPrice(pred.predicted_2m_price)}</div>
+                          <div className="text-base font-bold text-white">{formatPrice(pred.predicted_12m_price)}</div>
                           <div
-                            className={`text-xs font-semibold mt-0.5 ${change2m >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+                            className={`text-xs font-semibold mt-0.5 ${change12m >= 0 ? "text-emerald-400" : "text-rose-400"}`}
                           >
-                            {change2m >= 0 ? "+" : ""}
-                            {change2m.toFixed(1)}%
+                            {change12m >= 0 ? "+" : ""}
+                            {change12m.toFixed(1)}%
                           </div>
                         </td>
                         <td className="px-6 py-5 whitespace-nowrap text-center">
@@ -576,7 +546,6 @@ export default function HDBResellPage() {
         {!loading && filteredData.length === 0 && allData && (
           <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-16 text-center">
             <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-6">
-              <Filter className="w-10 h-10 text-slate-400" />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">No predictions found</h3>
             <p className="text-slate-400 mb-6">Try adjusting your filters to see more results</p>

@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-01-02T19:22:45.577093",
-  "model_type": "SARIMAX-scaled",
-  "num_models": 24,
-  "min_training_months": 7,
-  "prediction_horizon": 2,
+  "timestamp": "2026-01-03T21:47:39.901978",
+  "model_type": "SARIMAX",
+  "num_models": 21,
+  "min_training_months": 50,
+  "prediction_horizon": 5,
   "groups": [
     "CENTRAL_1 ROOM",
     "CENTRAL_2 ROOM",
@@ -11,19 +11,16 @@
     "CENTRAL_4 ROOM",
     "CENTRAL_5 ROOM",
     "CENTRAL_EXECUTIVE",
-    "CENTRAL_MULTI-GENERATION",
     "EAST_2 ROOM",
     "EAST_3 ROOM",
     "EAST_4 ROOM",
     "EAST_5 ROOM",
     "EAST_EXECUTIVE",
-    "EAST_MULTI-GENERATION",
     "NORTH_2 ROOM",
     "NORTH_3 ROOM",
     "NORTH_4 ROOM",
     "NORTH_5 ROOM",
     "NORTH_EXECUTIVE",
-    "NORTH_MULTI-GENERATION",
     "WEST_2 ROOM",
     "WEST_3 ROOM",
     "WEST_4 ROOM",
@@ -34,188 +31,168 @@
     "avg_floor_area",
     "avg_storey",
     "avg_remaining_lease",
-    "avg_lease_commence"
+    "avg_lease_commence",
+    "count"
   ],
   "architecture": {
-    "base_order": "(1,0,1)",
+    "base_order": "(1,1,1)",
     "seasonal_order": "(0,0,0,0)",
-    "exogenous_variables": 4,
-    "scaling": "min-max normalization",
-    "note": "Simple ARIMAX without differencing for stability, 7-month minimum"
+    "exogenous_variables": 5,
+    "trend": "n",
+    "note": "SARIMAX with differencing for stability, no linear trend"
   },
   "test_performance": {
-    "avg_rmse": 23164.62536903236,
-    "avg_mae": 18251.64791563811,
-    "avg_mape": 2.0440214662356095
+    "avg_rmse": 26302.290990600744,
+    "avg_mae": 22100.990102459044,
+    "avg_mape": 3.560508456380105
   },
   "individual_metrics": [
     {
       "group": "CENTRAL_1 ROOM",
-      "rmse": 744.7526170928891,
-      "mae": 739.1672407019942,
-      "mape": 0.27440145277351286,
-      "training_months": 308
+      "rmse": 5847.784060795475,
+      "mae": 4955.3787727371555,
+      "mape": 1.8382559224846404,
+      "training_months": 52
     },
     {
       "group": "CENTRAL_2 ROOM",
-      "rmse": 6946.047997869271,
-      "mae": 5899.164193226345,
-      "mape": 1.9007877909252753,
-      "training_months": 310
+      "rmse": 50824.097601903995,
+      "mae": 49001.58182338559,
+      "mape": 15.339993747305883,
+      "training_months": 54
     },
     {
       "group": "CENTRAL_3 ROOM",
-      "rmse": 6170.762487337646,
-      "mae": 5856.4614994084695,
-      "mape": 1.2136360352420845,
-      "training_months": 310
+      "rmse": 7316.937149477332,
+      "mae": 5646.339243276057,
+      "mape": 1.1725360062269206,
+      "training_months": 55
     },
     {
       "group": "CENTRAL_4 ROOM",
-      "rmse": 7189.354524532366,
-      "mae": 5818.417980552127,
-      "mape": 0.6645641541619964,
-      "training_months": 310
+      "rmse": 21737.679101218047,
+      "mae": 20467.995844892364,
+      "mape": 2.302386078150595,
+      "training_months": 55
     },
     {
       "group": "CENTRAL_5 ROOM",
-      "rmse": 32758.50070333686,
-      "mae": 24507.182565538445,
-      "mape": 2.215494030347172,
-      "training_months": 310
+      "rmse": 40871.97594898032,
+      "mae": 35544.46572470227,
+      "mape": 3.279257396852251,
+      "training_months": 54
     },
     {
       "group": "CENTRAL_EXECUTIVE",
-      "rmse": 23907.64128793119,
-      "mae": 19688.114130474976,
-      "mape": 1.5875988284173244,
-      "training_months": 310
-    },
-    {
-      "group": "CENTRAL_MULTI-GENERATION",
-      "rmse": 171802.6908149349,
-      "mae": 122255.84255819098,
-      "mape": 8.825722011975532,
-      "training_months": 303
+      "rmse": 78694.95025917134,
+      "mae": 66786.4832955176,
+      "mape": 5.377039008067808,
+      "training_months": 55
     },
     {
       "group": "EAST_2 ROOM",
-      "rmse": 21344.27617263615,
-      "mae": 18932.401575276424,
-      "mape": 4.68076458966397,
-      "training_months": 310
+      "rmse": 58601.870051241254,
+      "mae": 52388.243611767866,
+      "mape": 12.601596904880513,
+      "training_months": 55
     },
     {
       "group": "EAST_3 ROOM",
-      "rmse": 2324.573690818532,
-      "mae": 1787.9267935601238,
-      "mape": 0.3780407323869167,
-      "training_months": 310
+      "rmse": 8292.648594619026,
+      "mae": 6621.979375263152,
+      "mape": 1.4073678712844286,
+      "training_months": 55
     },
     {
       "group": "EAST_4 ROOM",
-      "rmse": 3175.517509427147,
-      "mae": 2739.7199324053363,
-      "mape": 0.40817073280925786,
-      "training_months": 310
+      "rmse": 22230.96142166442,
+      "mae": 17521.103087587933,
+      "mape": 2.682111379077155,
+      "training_months": 55
     },
     {
       "group": "EAST_5 ROOM",
-      "rmse": 12601.700667324441,
-      "mae": 9486.09086608782,
-      "mape": 1.2031534251720306,
-      "training_months": 310
+      "rmse": 46662.18469013148,
+      "mae": 35213.252340016305,
+      "mape": 4.13428366173116,
+      "training_months": 55
     },
     {
       "group": "EAST_EXECUTIVE",
-      "rmse": 41470.750588710594,
-      "mae": 41329.34481245949,
-      "mape": 4.213769427484059,
-      "training_months": 310
-    },
-    {
-      "group": "EAST_MULTI-GENERATION",
-      "rmse": 53666.64523561033,
-      "mae": 38319.30121725687,
-      "mape": 3.2795586761583047,
-      "training_months": 301
+      "rmse": 51892.330182632075,
+      "mae": 39907.215296541646,
+      "mape": 4.443183322361761,
+      "training_months": 55
     },
     {
       "group": "NORTH_2 ROOM",
-      "rmse": 6990.6306538853705,
-      "mae": 6354.972502262768,
-      "mape": 1.6767227669034843,
-      "training_months": 309
+      "rmse": 11998.755767439634,
+      "mae": 8659.301955845056,
+      "mape": 2.362287411885116,
+      "training_months": 55
     },
     {
       "group": "NORTH_3 ROOM",
-      "rmse": 1256.1045510426327,
-      "mae": 983.5813636785606,
-      "mape": 0.2068330324912571,
-      "training_months": 310
+      "rmse": 5737.095403805037,
+      "mae": 5005.1463052917625,
+      "mape": 1.0486062340721525,
+      "training_months": 55
     },
     {
       "group": "NORTH_4 ROOM",
-      "rmse": 7420.630579052646,
-      "mae": 7179.9501903672935,
-      "mape": 1.150549567617854,
-      "training_months": 310
+      "rmse": 12011.813837854925,
+      "mae": 9693.578665410936,
+      "mape": 1.554156259927316,
+      "training_months": 55
     },
     {
       "group": "NORTH_5 ROOM",
-      "rmse": 7674.979038189273,
-      "mae": 6054.578045354516,
-      "mape": 0.8311198402986615,
-      "training_months": 310
+      "rmse": 9896.148211003094,
+      "mae": 9208.641925843247,
+      "mape": 1.2519631545848473,
+      "training_months": 55
     },
     {
       "group": "NORTH_EXECUTIVE",
-      "rmse": 10336.09475726523,
-      "mae": 9113.914301233424,
-      "mape": 0.9835420606376502,
-      "training_months": 310
-    },
-    {
-      "group": "NORTH_MULTI-GENERATION",
-      "rmse": 79898.1412406927,
-      "mae": 58746.22344726225,
-      "mape": 5.398240246560262,
-      "training_months": 305
+      "rmse": 41055.86500128586,
+      "mae": 40203.78265820958,
+      "mape": 4.396213160246115,
+      "training_months": 55
     },
     {
       "group": "WEST_2 ROOM",
-      "rmse": 1841.049536343117,
-      "mae": 1684.8282001310727,
-      "mape": 0.4510941705733613,
-      "training_months": 305
+      "rmse": 11589.734165117126,
+      "mae": 7536.867673478276,
+      "mape": 2.097969129522157,
+      "training_months": 55
     },
     {
       "group": "WEST_3 ROOM",
-      "rmse": 9081.897167639443,
-      "mae": 8799.646678030607,
-      "mape": 2.074805206105213,
-      "training_months": 310
+      "rmse": 9417.269475569748,
+      "mae": 6997.663379423029,
+      "mape": 1.63275006344141,
+      "training_months": 55
     },
     {
       "group": "WEST_4 ROOM",
-      "rmse": 4808.591242899449,
-      "mae": 4406.735647301946,
-      "mape": 0.7321472042554948,
-      "training_months": 310
+      "rmse": 20892.299788892036,
+      "mae": 14611.926625705953,
+      "mape": 2.3155948737879153,
+      "training_months": 55
     },
     {
       "group": "WEST_5 ROOM",
-      "rmse": 24217.984741042423,
-      "mae": 20879.19645896979,
-      "mape": 2.8078195791829827,
-      "training_months": 310
+      "rmse": 12659.407443014983,
+      "mae": 9214.51839472826,
+      "mape": 1.2614976569482728,
+      "training_months": 55
     },
     {
       "group": "WEST_EXECUTIVE",
-      "rmse": 18321.691051162,
-      "mae": 16476.787775582983,
-      "mape": 1.8979796275109793,
-      "training_months": 310
+      "rmse": 24116.302646798427,
+      "mae": 18935.326152015805,
+      "mape": 2.27162834114379,
+      "training_months": 55
     }
   ]
 }
