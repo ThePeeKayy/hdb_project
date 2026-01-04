@@ -17,12 +17,6 @@ def listings():
     response = lambda_app.lambda_handler(event, None)
     return (response['body'], response['statusCode'], response['headers'])
 
-@app.route('/api/predict', methods=['POST', 'OPTIONS'])
-def predict():
-    event = create_event(request, '/api/predict')
-    response = lambda_app.lambda_handler(event, None)
-    return (response['body'], response['statusCode'], response['headers'])
-
 @app.route('/api/helper', methods=['POST', 'OPTIONS'])
 def helper():
     event = create_event(request, '/api/helper')

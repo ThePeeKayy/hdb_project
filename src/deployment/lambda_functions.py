@@ -1,8 +1,6 @@
 import json
 import boto3
-import requests
 from datetime import datetime
-import pickle
 import numpy as np
 import uuid
 import time
@@ -21,18 +19,6 @@ table = dynamodb.Table('listings')
 model_data = None
 vector_db = None
 embeddings = None
-
-def load_model():
-    global model_data
-    if model_data is None:
-        try:
-            model_path = 'arima_unified_model.pkl'
-            with open(model_path, 'rb') as f:
-                model_data = pickle.load(f)
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            model_data = None
-    return model_data
 
 def load_vector_db():
     global vector_db, embeddings
